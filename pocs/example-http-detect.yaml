@@ -1,0 +1,11 @@
+id: example-admin-detect
+info:
+  name: Admin Panel Detect
+  severity: info
+requests:
+  - method: GET
+    path: "/admin"
+    headers: {}
+    matchers:
+      - type: status
+        status: [200, 401, 403]
