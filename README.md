@@ -16,8 +16,8 @@ SRC 漏洞挖掘信息收集自动化工具（Python）。将子域枚举、资�
 | **reverse** | **IP 反查域名**（hackertarget 免 key；裸 IP 侦察的第一步） |
 | **icp** | **ICP 备案查询**（域名 → 备案号 / 主办单位 / 类型 / 审核日期；apihz 接口，可用 APIHZ_ID/APIHZ_KEY 覆盖 demo 额度） |
 | fingerprint | 内置常用指纹规则（ThinkPHP/Shiro/Spring/WordPress/Nginx/Tomcat/Actuator/Nacos/Jenkins/Grafana/Elasticsearch 等，headers+body 双通道） |
-| paths | 敏感路径探测（.git/.env/swagger/actuator/druid 等） |
-| **api** | **API 文档暴露 / 未授权探测**（27 个候选端点：Swagger/OpenAPI、Actuator、Druid、GraphQL、Eureka/Nacos/Consul、pprof、heapdump…按响应特征判定并分级） |
+| paths | 敏感路径探测（.git/.env/swagger/actuator/druid 等；**软 404 基线过滤 + 存活复验**，SPA/WAF 站点不再满屏假存活） |
+| **api** | **API 文档暴露 / 未授权探测**（27 个候选端点：Swagger/OpenAPI、Actuator、Druid、GraphQL、Eureka/Nacos/Consul、pprof、heapdump…**软 404 基线过滤 + 命中后存活复验**，输出带 `live` 判定） |
 | poc | YAML 化 POC 模板引擎（nuclei 风格子集，status/contains matcher，and/or 条件） |
 | llm | LLM 辅助资产分级与攻击面总结（可选，无 key 自动降级） |
 
@@ -86,6 +86,14 @@ requests:
 
 多源并行 + 模板化后，单次信息收集从约 2 小时压缩至 30 分钟内；
 已用于 EDUSRC 授权范围内的实战挖洞。
+
+## 质量与审计
+
+- **测试**：`python -m unittest discover -s tests` —— 28 项，含**可控靶站集成测试**
+  （`tests/mock_server.py` 模拟 SPA 软 404 / JSON catch-all / 全局 403 / 统一跳转四类陷阱站）
+- **审计报告**：[docs/audit-20260924.md](docs/audit-20260924.md) —— 对探测模块做对抗性审计：
+  修复"无软 404 基线"（SPA 站点曾 19 条全部假存活）与"命中不复验存活"两个严重问题，
+  修复后**假阳性归零、真阳性零损失**，并固化为 CI 回归测试。
 
 ## 目录
 

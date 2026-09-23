@@ -82,10 +82,24 @@ class TestApiClassify(unittest.TestCase):
         from modules.api_unauth import classify
         self.assertFalse(classify("/actuator", 404, "", "", 0, ['"_links"'])["hit"])
 
-    def test_heapdump_by_content(self):
+    def test_heapdump_requires_java_profile_magic(self):
+        """审计修复：heapdump 必须带 JAVA PROFILE 魔数，不能凭"二进制/大响应"就报。"""
         from modules.api_unauth import classify
-        r = classify("/actuator/heapdump", 200, "x" * 5000, "application/octet-stream", 5000, [])
-        self.assertTrue(r["hit"])
+        real = classify("/actuator/heapdump", 200, "JAVA PROFILE 1.0.8\x00\x00", "application/octet-stream",
+                        4114, ["java profile"])
+        self.assertTrue(real["hit"])
+        blob = classify("/actuator/heapdump", 200, "x" * 5000, "application/octet-stream", 5000, ["java profile"])
+        self.assertFalse(blob["hit"])
+
+    def test_multi_marker_endpoint_needs_two(self):
+        """审计修复：多特征端点需命中 ≥2 个，避免泛化 JSON 误报。"""
+        from modules.api_unauth import classify
+        one = classify("/api/v1/users", 200, '{"data":{"username":null}}', "application/json", 40,
+                       ['"username"', '"email"'])
+        self.assertFalse(one["hit"])
+        two = classify("/api/v1/users", 200, '{"data":{"username":"a","email":"a@b.c"}}', "application/json", 60,
+                       ['"username"', '"email"'])
+        self.assertTrue(two["hit"])
 
     def test_endpoints_table_sane(self):
         from modules.api_unauth import ENDPOINTS
