@@ -26,6 +26,23 @@ RULES = [
     {"name": "IIS",       "where": "header", "pattern": r"microsoft-iis",        "type": "server"},
     {"name": "Vue",       "where": "body",   "pattern": r"data-v-[0-9a-f]{8}|__vue__", "type": "frontend"},
     {"name": "React",     "where": "body",   "pattern": r"data-reactroot|__react", "type": "frontend"},
+    # ── 中间件 / 运维面 / API 文档（规则均取「技术特征」，避免正文误伤）──
+    {"name": "Spring Boot", "where": "header", "pattern": r"x-application-context", "type": "framework"},
+    {"name": "Tomcat",    "where": "header", "pattern": r"apache-coyote|tomcat",  "type": "middleware"},
+    {"name": "Jetty",     "where": "header", "pattern": r"jetty",                 "type": "middleware"},
+    {"name": "Undertow",  "where": "header", "pattern": r"undertow",              "type": "middleware"},
+    {"name": "WebLogic",  "where": "header", "pattern": r"weblogic",              "type": "middleware"},
+    {"name": "Jenkins",   "where": "header", "pattern": r"x-jenkins",             "type": "devops"},
+    {"name": "Grafana",   "where": "body",   "pattern": r'"grafanabootdata"|grafana-app|window\.grafana', "type": "devops"},
+    {"name": "Kibana",    "where": "body",   "pattern": r"kbn-injected-metadata", "type": "devops"},
+    {"name": "Elasticsearch", "where": "body", "pattern": r'"you know, for search"|"cluster_name"\s*:', "type": "middleware"},
+    {"name": "GitLab",    "where": "body",   "pattern": r'"gitlab_url"|gon\.gitlab|gitlab-ee|gitlab-ce', "type": "devops"},
+    {"name": "Jira",      "where": "body",   "pattern": r"ajs-version-number|com-atlassian-jira", "type": "devops"},
+    {"name": "phpMyAdmin", "where": "body",  "pattern": r'id="pma_username"|pma_password|name="pma_username"', "type": "tool"},
+    {"name": "RabbitMQ",  "where": "body",   "pattern": r"rabbitmq management",   "type": "middleware"},
+    {"name": "Harbor",    "where": "body",   "pattern": r'harbor-logo|"harbor_version"', "type": "devops"},
+    {"name": "Swagger UI", "where": "body",  "pattern": r"swagger-ui\.css|swagger-ui-bundle", "type": "api"},
+    {"name": "Nacos",     "where": "body",   "pattern": r'console-ui|"nacos"',     "type": "middleware"},
 ]
 
 
