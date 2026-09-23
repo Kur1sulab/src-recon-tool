@@ -11,7 +11,7 @@ SRC 漏洞挖掘信息收集自动化工具（Python）。将子域枚举、资�
 
 | 模块 | 说明 |
 |---|---|
-| subdomain | OneForAll 子域枚举（未配置时自动降级 crt.sh 证书日志查询，无需 key） |
+| subdomain | OneForAll 子域枚举（未配置时自动降级证书日志查询：crt.sh → certspotter 兜底，均无需 key） |
 | asset | FOFA / Hunter 资产测绘（API key 走环境变量，未配置自动跳过） |
 | fingerprint | 内置常用指纹规则（ThinkPHP/Shiro/Spring/WordPress/Nginx 等，headers+body 双通道） |
 | paths | 敏感路径探测（.git/.env/swagger/actuator/druid 等） |

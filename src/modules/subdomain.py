@@ -69,6 +69,22 @@ def _from_crtsh(domain: str, tries: int = 3) -> list:
     return sorted(subs)
 
 
+def _from_certspotter(domain: str) -> list:
+    """备用证书日志源（crt.sh 挂掉时兜底）：certspotter 公开 API，无需 key。"""
+    url = ("https://api.certspotter.com/v1/issuances?domain=%s"
+           "&include_subdomains=true&expand=dns_names" % domain)
+    req = urllib.request.Request(url, headers=_UA)
+    with urllib.request.urlopen(req, timeout=30) as r:
+        data = json.load(r)
+    subs = set()
+    for row in data if isinstance(data, list) else []:
+        for name in row.get("dns_names", []):
+            name = name.strip().lower().lstrip("*.")
+            if name.endswith(domain.lower()):
+                subs.add(name)
+    return sorted(subs)
+
+
 def run_subdomain(domain: str, out: str):
     result_path = os.path.join(out, "subdomains.txt")
     subs = _from_oneforall(domain, out)
@@ -76,9 +92,21 @@ def run_subdomain(domain: str, out: str):
         src = "OneForAll"
     else:
         if not os.environ.get("ONEFORALL_HOME"):
-            print("[*] 未设置 ONEFORALL_HOME，降级使用 crt.sh 证书日志查询")
-        subs = _from_crtsh(domain)
+            print("[*] 未设置 ONEFORALL_HOME，降级使用证书日志查询")
         src = "crt.sh"
+        try:
+            subs = _from_crtsh(domain)
+        except Exception as e:
+            print(f"[!] crt.sh 异常: {e}")
+            subs = []
+        if not subs:
+            print("[*] 尝试备用证书源 certspotter")
+            try:
+                subs = _from_certspotter(domain)
+                src = "certspotter"
+            except Exception as e:
+                print(f"[!] certspotter 也不可用: {e}")
+                subs = []
     with open(result_path, "w", encoding="utf-8") as f:
         f.write("\n".join(subs) + ("\n" if subs else ""))
     print(f"[+] 子域枚举完成（{src}，{len(subs)} 个）-> {result_path}")
