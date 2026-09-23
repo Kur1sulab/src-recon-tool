@@ -102,6 +102,8 @@ def cmd_all(args):
         run_paths(base, out)
         run_api(base, out)
     run_llm(out)
+    from modules.report import run_report
+    run_report(out, target)                   # 聚合资产档案 + 证据包
     print(f"[+] 全流程完成，输出目录: {out}")
 
 
@@ -123,6 +125,8 @@ def main():
     pp = sub.add_parser("paths"); pp.add_argument("-u", "--url", required=True)
     pc = sub.add_parser("poc"); pc.add_argument("-t", "--target", required=True); pc.add_argument("-p", "--poc", required=True)
     pl = sub.add_parser("llm"); pl.add_argument("-d", "--domain", required=True)
+    pr2 = sub.add_parser("report"); pr2.add_argument("-t", "--target", "-d", "--domain", dest="target",
+                                                     required=True, help="按已有产出重新生成资产档案/证据包")
     args = p.parse_args()
 
     if args.cmd == "all":
@@ -160,6 +164,9 @@ def main():
     elif args.cmd == "llm":
         from modules.llm_assist import run_llm
         run_llm(make_outdir(args.domain))
+    elif args.cmd == "report":
+        from modules.report import run_report
+        run_report(make_outdir(args.target), args.target)
     else:
         p.print_help()
         sys.exit(1)

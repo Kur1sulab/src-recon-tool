@@ -19,6 +19,7 @@ SRC 漏洞挖掘信息收集自动化工具（Python）。将子域枚举、资�
 | paths | 敏感路径探测（.git/.env/swagger/actuator/druid 等；**软 404 基线过滤 + 存活复验**，SPA/WAF 站点不再满屏假存活） |
 | **api** | **API 文档暴露 / 未授权探测**（27 个候选端点：Swagger/OpenAPI、Actuator、Druid、GraphQL、Eureka/Nacos/Consul、pprof、heapdump…**软 404 基线过滤 + 命中后存活复验**；存活命中自动进入**取证模式**：落盘响应片段 + 可直接复跑的 curl 复现稿） |
 | poc | YAML 化 POC 模板引擎（nuclei 风格子集，status/contains matcher，and/or 条件） |
+| **report** | **资产档案 + 证据包**（把所有模块产出聚合成 `report.md`：归属线索/子域存活/指纹/敏感路径/API 暴露 + 待人工跟进；并把 `evidence/` 打成 zip 随提交稿交付；`all` 自动生成） |
 | llm | LLM 辅助资产分级与攻击面总结（可选，无 key 自动降级） |
 
 ## 架构
@@ -55,7 +56,10 @@ python src/recon.py fingerprint -u https://example.com
 python src/recon.py paths -u https://example.com
 python src/recon.py poc -t https://example.com -p pocs/example-http-detect.yaml
 python src/recon.py llm -d example.com        # 仅 LLM 总结
+python src/recon.py report -t example.com     # 按已有产出重新生成资产档案 + 证据包
 ```
+
+`all` 跑完会自动生成 `out/<目标>/report.md`（资产档案）与 `out/<目标>/evidence-<目标>-<时间>.zip`（证据包，仅在有过存活取证时）。
 
 `all` 的 `-t/--target` 同时接受**域名或 IP**（自动识别）：给 IP 时走
 `反查域名 → 逐个 ICP 备案 → 用反查到的域名做指纹/API 探测`（裸 IP 直连常被按域名路由的站点返回 404）。
@@ -91,11 +95,13 @@ requests:
 
 ## 质量与审计
 
-- **测试**：`python -m unittest discover -s tests` —— 28 项，含**可控靶站集成测试**
+- **测试**：`python -m unittest discover -s tests` —— 41 项，含**可控靶站集成测试**
   （`tests/mock_server.py` 模拟 SPA 软 404 / JSON catch-all / 全局 403 / 统一跳转四类陷阱站）
 - **审计报告**：[docs/audit-20260924.md](docs/audit-20260924.md) —— 对探测模块做对抗性审计：
   修复"无软 404 基线"（SPA 站点曾 19 条全部假存活）与"命中不复验存活"两个严重问题，
   修复后**假阳性归零、真阳性零损失**，并固化为 CI 回归测试。
+- **三轮自审累计修复**：软 404 基线 ✗、命中不复验 ✗、判定过宽 ✗、目录穿越 ✗、全局超时污染 ✗、
+  报告内联脏数据 ✗ —— 每一轮都留了回归测试。
 
 ## 目录
 
