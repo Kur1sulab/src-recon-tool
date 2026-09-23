@@ -11,13 +11,13 @@ SRC 漏洞挖掘信息收集自动化工具（Python）。将子域枚举、资�
 
 | 模块 | 说明 |
 |---|---|
-| subdomain | OneForAll 子域枚举（未配置时自动降级证书日志查询：crt.sh → certspotter 兜底，均无需 key） |
+| subdomain | OneForAll 子域枚举（未配置时自动降级证书日志查询：crt.sh → certspotter 兜底，均无需 key）；`--verify` 可做 **DNS 解析 + HTTP 探活**，把失效域名滤掉 |
 | asset | FOFA / Hunter 资产测绘（API key 走环境变量，未配置自动跳过） |
 | **reverse** | **IP 反查域名**（hackertarget 免 key；裸 IP 侦察的第一步） |
 | **icp** | **ICP 备案查询**（域名 → 备案号 / 主办单位 / 类型 / 审核日期；apihz 接口，可用 APIHZ_ID/APIHZ_KEY 覆盖 demo 额度） |
 | fingerprint | 内置常用指纹规则（ThinkPHP/Shiro/Spring/WordPress/Nginx/Tomcat/Actuator/Nacos/Jenkins/Grafana/Elasticsearch 等，headers+body 双通道） |
 | paths | 敏感路径探测（.git/.env/swagger/actuator/druid 等；**软 404 基线过滤 + 存活复验**，SPA/WAF 站点不再满屏假存活） |
-| **api** | **API 文档暴露 / 未授权探测**（27 个候选端点：Swagger/OpenAPI、Actuator、Druid、GraphQL、Eureka/Nacos/Consul、pprof、heapdump…**软 404 基线过滤 + 命中后存活复验**，输出带 `live` 判定） |
+| **api** | **API 文档暴露 / 未授权探测**（27 个候选端点：Swagger/OpenAPI、Actuator、Druid、GraphQL、Eureka/Nacos/Consul、pprof、heapdump…**软 404 基线过滤 + 命中后存活复验**；存活命中自动进入**取证模式**：落盘响应片段 + 可直接复跑的 curl 复现稿） |
 | poc | YAML 化 POC 模板引擎（nuclei 风格子集，status/contains matcher，and/or 条件） |
 | llm | LLM 辅助资产分级与攻击面总结（可选，无 key 自动降级） |
 
@@ -45,6 +45,8 @@ export FOFA_EMAIL=... FOFA_KEY=... HUNTER_KEY=...   # Windows: setx
 python src/recon.py all -d example.com        # 域名全流程
 python src/recon.py all -t 47.100.49.228      # IP 全流程：反查域名 → ICP → 指纹 → API 探测
 python src/recon.py subdomain -d example.com  # 仅子域
+python src/recon.py subdomain -d example.com --verify   # 子域 + 存活验证（DNS/HTTP）
+python src/recon.py verify -d example.com     # 对已有 subdomains.txt 做存活验证
 python src/recon.py asset -d example.com      # 仅资产测绘
 python src/recon.py reverse -i 47.100.49.228  # 仅 IP 反查域名
 python src/recon.py icp -d example.com        # 仅 ICP 备案查询

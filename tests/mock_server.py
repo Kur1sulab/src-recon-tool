@@ -39,7 +39,7 @@ TRUE_POSITIVES = ["/swagger-ui.html", "/v3/api-docs", "/actuator", "/actuator/en
 
 
 class Handler(BaseHTTPRequestHandler):
-    protocol_version = "HTTP/1.1"
+    protocol_version = "HTTP/1.0"      # 短连接：避免测试进程里遗留 keep-alive 套接字
 
     def _send(self, code, ctype, body, extra=None):
         raw = body.encode("utf-8", "ignore") if isinstance(body, str) else body

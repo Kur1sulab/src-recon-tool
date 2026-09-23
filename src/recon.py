@@ -85,12 +85,13 @@ def cmd_all(args):
         run_fingerprint(base, out)
         run_api(base, out)
     else:
-        # ── 域名分支：子域 → 资产 → ICP → 指纹 → 路径 → API → LLM ──
-        from modules.subdomain import run_subdomain
+        # ── 域名分支：子域 → 存活验证 → 资产 → ICP → 指纹 → 路径 → API → LLM ──
+        from modules.subdomain import run_subdomain, run_verify
         from modules.asset import run_asset
         from modules.icp import run_icp
         from modules.paths import run_paths
         run_subdomain(target, out)
+        run_verify(out)                       # 审计补充：证书日志含大量失效域名，必须验证存活
         run_asset(target, out)
         try:
             run_icp(target, out)
@@ -110,6 +111,10 @@ def main():
     pa = sub.add_parser("all"); pa.add_argument("-t", "--target", "-d", "--domain", dest="target", required=True,
                                                 help="域名或 IP，自动识别")
     ps = sub.add_parser("subdomain"); ps.add_argument("-d", "--domain", required=True)
+    ps.add_argument("--verify", action="store_true", help="枚举后立即做存活验证（DNS + HTTP）")
+    pv = sub.add_parser("verify"); pv.add_argument("-d", "--domain", required=True,
+                                                   help="对 out/<domain>/subdomains.txt 做存活验证")
+    pv.add_argument("-w", "--workers", type=int, default=8, help="并发数（默认 8，低频克制）")
     pa2 = sub.add_parser("asset"); pa2.add_argument("-d", "--domain", required=True)
     pr = sub.add_parser("reverse"); pr.add_argument("-i", "--ip", required=True)
     pi = sub.add_parser("icp"); pi.add_argument("-d", "--domain", required=True)
@@ -123,8 +128,14 @@ def main():
     if args.cmd == "all":
         cmd_all(args)
     elif args.cmd == "subdomain":
-        from modules.subdomain import run_subdomain
-        run_subdomain(args.domain, make_outdir(args.domain))
+        from modules.subdomain import run_subdomain, run_verify
+        out = make_outdir(args.domain)
+        run_subdomain(args.domain, out)
+        if getattr(args, "verify", False):
+            run_verify(out)
+    elif args.cmd == "verify":
+        from modules.subdomain import run_verify
+        run_verify(make_outdir(args.domain), workers=getattr(args, "workers", 8))
     elif args.cmd == "asset":
         from modules.asset import run_asset
         run_asset(args.domain, make_outdir(args.domain))

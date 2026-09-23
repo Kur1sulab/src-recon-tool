@@ -98,11 +98,85 @@ def probe(base_url: str, timeout: int = 12, verify: bool = True) -> tuple:
     return rows, hits
 
 
-def run_api(url: str, out: str) -> list:
+def save_evidence(row: dict, out: str) -> dict:
+    """对"已确认存活"的命中落盘存证：meta.json + response.snippet.txt + repro.md。
+
+    产出落在 out/evidence/<host>/<slug>/（out/ 已在 .gitignore，不会误入仓库）。
+    注意：host/slug 都做白名单清洗 —— 否则畸形 URL 的 netloc 会造成目录穿越（自审发现）。
+    """
+    import datetime
+    import re as _re
+    from urllib.parse import urlparse
+
+    def _safe(s: str) -> str:
+        # 白名单清洗 + 去掉首尾点号（否则 ".." 仍可穿越）
+        s = _re.sub(r"[^A-Za-z0-9._-]", "_", (s or ""))[:64].strip(".")
+        return s or "unknown"
+
+    url = row.get("url") or (str(row.get("base", "")) + str(row.get("path", "")))
+    host = _safe(urlparse(url).netloc.replace(":", "_"))
+    slug = _safe(_re.sub(r"[^a-zA-Z0-9]+", "_", str(row.get("path", ""))).strip("_"))
+    d = os.path.join(out, "evidence", host, slug)
+    os.makedirs(d, exist_ok=True)
+    ts = datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+
+    r = netutil.fetch(url, timeout=15)
+    body = r.get("body", "")
+    meta = {"url": url, "collected_at": ts, "status": r.get("status"), "size": r.get("size"),
+            "sha1": r.get("sha1"), "ctype": r.get("ctype"), "server": r.get("headers", {}).get("server", ""),
+            "name": row.get("name"), "risk": row.get("risk"), "evidence": row.get("evidence"),
+            "live": row.get("live"), "recheck": row.get("recheck", {}).get("attempts")}
+    with open(os.path.join(d, "meta.json"), "w", encoding="utf-8") as f:
+        json.dump(meta, f, ensure_ascii=False, indent=2)
+    with open(os.path.join(d, "response.snippet.txt"), "w", encoding="utf-8") as f:
+        f.write(f"# {url}\n# {ts}  status={r.get('status')} size={r.get('size')} "
+                f"ctype={r.get('ctype')} sha1={r.get('sha1')}\n# ⚠️ 可能含敏感信息，勿外传；报告脱敏后引用\n"
+                + "-" * 60 + "\n" + body[:4000])
+    with open(os.path.join(d, "repro.md"), "w", encoding="utf-8") as f:
+        f.write(f"""# 证据：{row.get('name')}（{row.get('risk')}危）
+
+- URL：`{url}`
+- 采集时间：{ts}
+- 状态码 {r.get('status')} · 大小 {r.get('size')} B · Content-Type `{r.get('ctype')}`
+- 判定依据：{row.get('evidence')}
+- 存活复验：连续两次形态一致（{meta['recheck']}）
+
+## 复现命令
+
+```bash
+# 未携带任何凭证，直接请求（未授权即可访问）
+curl -sk -i '{url}' | head -c 2000
+```
+
+## 预期现象
+
+命中特征「{row.get('marker') or row.get('evidence')}」在响应中出现，且无需登录态。
+
+## 使用提醒
+
+1. 该响应可能含配置、口令或会话信息 —— **不要外传、不要入库、报告内脱敏**；
+2. 提交前用上面的命令复跑一次（证明仍然存活），并把响应片段作为证据附件；
+3. 报告只写实测到的内容，不做推断性描述。
+""")
+    return {"dir": d, "meta": meta}
+
+
+def run_api(url: str, out: str, evidence: bool = True) -> list:
     print(f"[*] API 文档/未授权探测: {url}（{len(ENDPOINTS)} 个候选端点）")
     rows, hits = probe(url)
     live = [h for h in hits if h.get("live")]
     soft = [r for r in rows if r.get("soft404")]
+    for h in live:
+        h["url"] = (url.rstrip("/") + h["path"])
+    if evidence and live:
+        print(f"[*] 取证模式：为 {len(live)} 个存活命中落盘存证")
+        for h in live:
+            try:
+                ev = save_evidence(h, out)
+                h["evidence_dir"] = ev["dir"]
+                print(f"      存证 {h['path']} -> {os.path.relpath(ev['dir'], out)}")
+            except Exception as e:
+                print(f"      [!] {h['path']} 存证失败: {e}")
     path = os.path.join(out, "api_unauth.json")
     with open(path, "w", encoding="utf-8") as f:
         json.dump({"base": url, "probed": len(rows), "hits": hits, "live_hits": len(live),
