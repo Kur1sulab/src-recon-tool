@@ -1,5 +1,7 @@
 # src-recon-tool
 
+![tests](https://github.com/Kur1sulab/src-recon-tool/actions/workflows/tests.yml/badge.svg)
+
 SRC 漏洞挖掘信息收集自动化工具（Python）。将子域枚举、资产测绘、指纹识别、
 敏感路径探测与 YAML 化 POC 验证编排为一条流水线，单次全流程约 30 分钟内完成。
 
