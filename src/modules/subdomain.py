@@ -8,6 +8,7 @@ import os
 import ssl
 import subprocess
 import sys
+import time
 import urllib.request
 
 _UA = {"User-Agent": "src-recon-tool/1.0 (+authorized-testing-only)"}
@@ -39,14 +40,26 @@ def _from_oneforall(domain: str, out: str) -> list:
     return sorted(s for s in subs if s)
 
 
-def _from_crtsh(domain: str) -> list:
+def _from_crtsh(domain: str, tries: int = 3) -> list:
+    """crt.sh 偶发 502/超时，做 3 次退避重试；彻底失败时优雅返回空列表而非抛栈。"""
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
     url = f"https://crt.sh/?q=%25.{domain}&output=json"
-    req = urllib.request.Request(url, headers=_UA)
-    with urllib.request.urlopen(req, timeout=30, context=ctx) as r:
-        data = json.load(r)
+    data = None
+    for i in range(1, tries + 1):
+        try:
+            req = urllib.request.Request(url, headers=_UA)
+            with urllib.request.urlopen(req, timeout=30, context=ctx) as r:
+                data = json.load(r)
+            break
+        except Exception as e:
+            print(f"[!] crt.sh 第 {i}/{tries} 次请求失败: {e}")
+            if i < tries:
+                time.sleep(2 * i)
+    if data is None:
+        print("[!] crt.sh 不可用（重试均失败）。可设置 ONEFORALL_HOME 走 OneForAll，或稍后重试")
+        return []
     subs = set()
     for row in data:
         for name in row.get("name_value", "").splitlines():

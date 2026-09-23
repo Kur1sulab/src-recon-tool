@@ -11,12 +11,17 @@ import urllib.request
 _UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) src-recon-tool/1.0"}
 
 RULES = [
-    {"name": "ThinkPHP",  "where": "body",   "pattern": r"thinkphp|think\s*php", "type": "framework"},
+    # 注意：body 匹配只认「技术特征」（版本号/报错页/框架专属路径），
+    # 不能匹配自然语言里出现的框架名词——否则一篇提到 "ThinkPHP" 的文章
+    # 会把整个站点误判为 ThinkPHP（静态博客实测踩过）。
+    {"name": "ThinkPHP",  "where": "header", "pattern": r"x-powered-by:\s*thinkphp", "type": "framework"},
+    {"name": "ThinkPHP",  "where": "body",   "pattern": r"thinkphp[_\-/ ]?v?\d+\.\d|think_exception|thinkphp_exception|_method=__construct|/index\.php\?s=/", "type": "framework"},
     {"name": "Shiro",     "where": "header", "pattern": r"rememberme=deleteme",  "type": "framework"},
     {"name": "Spring",    "where": "body",   "pattern": r"whitelabel error page", "type": "framework"},
-    {"name": "WordPress", "where": "body",   "pattern": r"wp-content|wp-includes", "type": "cms"},
+    {"name": "WordPress", "where": "header", "pattern": r"x-powered-by:\s*wordpress|link:.*wp-json", "type": "cms"},
+    {"name": "WordPress", "where": "body",   "pattern": r"wp-content/(themes|plugins|uploads)|wp-includes/(js|css)/", "type": "cms"},
     {"name": "Discuz",    "where": "body",   "pattern": r"discuz!|forum\.php\?mod=", "type": "cms"},
-    {"name": "Nginx",     "where": "header", "pattern": r"nginx",                "type": "server"},
+    {"name": "Nginx",     "where": "header", "pattern": r"nginx|openresty|tengine", "type": "server"},
     {"name": "Apache",    "where": "header", "pattern": r"apache",               "type": "server"},
     {"name": "IIS",       "where": "header", "pattern": r"microsoft-iis",        "type": "server"},
     {"name": "Vue",       "where": "body",   "pattern": r"data-v-[0-9a-f]{8}|__vue__", "type": "frontend"},
@@ -40,6 +45,8 @@ def run_fingerprint(url: str, out: str):
     for rule in RULES:
         haystack = headers if rule["where"] == "header" else body
         if re.search(rule["pattern"], haystack):
+            if any(h["name"] == rule["name"] for h in hits):   # 同一指纹多规则命中只记一次
+                continue
             hits.append({"name": rule["name"], "type": rule["type"]})
     path = os.path.join(out, "fingerprint.json")
     with open(path, "w", encoding="utf-8") as f:
