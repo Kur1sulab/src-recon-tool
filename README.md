@@ -19,6 +19,7 @@ SRC 漏洞挖掘信息收集自动化工具（Python）。将子域枚举、资�
 | paths | 敏感路径探测（.git/.env/swagger/actuator/druid 等；**软 404 基线过滤 + 存活复验**，SPA/WAF 站点不再满屏假存活） |
 | **api** | **API 文档暴露 / 未授权探测**（27 个候选端点：Swagger/OpenAPI、Actuator、Druid、GraphQL、Eureka/Nacos/Consul、pprof、heapdump…**软 404 基线过滤 + 命中后存活复验**；存活命中自动进入**取证模式**：落盘响应片段 + 可直接复跑的 curl 复现稿） |
 | **jsintel** | **JS 情报提取**（前端接口挖掘：抓目标页 + 外链 JS（并发 ≤6 / 单文件 ≤2MB / 只 GET），提取 ① API 端点线索——规范化去重、滤静态资源，绝对 URL 可直接喂给 api/paths 复核；② 敏感线索——key/secret/token/password/appid… 只标文件+行号+片段，**值打码（只留前 4 位）**；③ 域名线索——子域/第三方域/内网 IP 归类。WAF/异常站点优雅降级，线索≠漏洞需人工复核） |
+| **portscan** | **端口扫描**（纯标准库 TCP connect，零三方依赖：内置 ~100 常用端口表，`--ports 80,443,8000-8100` 混合写法自定义；并发 ≤32 / 连接超时 1.5s 可调；开放端口做 1s 轻量旗帜抓取并识别服务名（SSH/Redis/MySQL/…）。**仅限授权目标**） |
 | poc | YAML 化 POC 模板引擎（nuclei 风格子集，status/contains matcher，and/or 条件） |
 | **report** | **资产档案 + 证据包**（把所有模块产出聚合成 `report.md`：归属线索/子域存活/指纹/敏感路径/API 暴露 + 待人工跟进；并把 `evidence/` 打成 zip 随提交稿交付；`all` 自动生成） |
 | llm | LLM 辅助资产分级与攻击面总结（可选，无 key 自动降级） |
@@ -26,7 +27,7 @@ SRC 漏洞挖掘信息收集自动化工具（Python）。将子域枚举、资�
 ## 架构
 
 ```
-target → recon.py → subdomain / asset / fingerprint / paths → out/<target>/
+target → recon.py → subdomain / asset / fingerprint / paths / jsintel / portscan → out/<target>/
                                               ↓
                                        poc_engine（YAML 模板）
                                               ↓
@@ -54,6 +55,8 @@ python src/recon.py reverse -i 47.100.49.228  # 仅 IP 反查域名
 python src/recon.py icp -d example.com        # 仅 ICP 备案查询
 python src/recon.py api -u https://example.com        # 仅 API 文档/未授权探测
 python src/recon.py jsintel -u https://example.com    # 仅 JS 情报提取（端点/敏感线索/域名）
+python src/recon.py portscan -t 47.100.49.228         # 仅端口扫描（默认常用端口表，仅限授权目标）
+python src/recon.py portscan -t 127.0.0.1 --ports 80,443,8000-8100 --timeout 1   # 自定义端口/超时
 python src/recon.py fingerprint -u https://example.com
 python src/recon.py paths -u https://example.com
 python src/recon.py poc -t https://example.com -p pocs/example-http-detect.yaml
@@ -68,6 +71,11 @@ python src/recon.py report -t example.com     # 按已有产出重新生成资�
 
 无任何 API key 时，`all` 全流程仍可跑通：子域走 crt.sh（挂掉自动切 certspotter）、
 备案走 apihz 公开接口，其余模块自动降级跳过。
+
+`all` 已接入 jsintel 与 portscan（同样**优雅降级**，失败只打 `[!]` 警告不阻断主流程）：
+域名目标在 API 探测后自动做 **JS 情报提取**（以探测 base 为入口）与**常用端口扫描**；
+IP 目标对裸 IP 扫端口、对探测入口抓 JS。产物落在同一 `out/<目标>/` 目录
+（`jsintel.json/txt`、`ports.json/txt`），并进入 `report.md` 的「JS 线索」「开放端口」章节。
 
 ## POC 模板示例
 
@@ -97,8 +105,8 @@ requests:
 
 ## 质量与审计
 
-- **测试**：`python -m unittest discover -s tests` —— 41 项，含**可控靶站集成测试**
-  （`tests/mock_server.py` 模拟 SPA 软 404 / JSON catch-all / 全局 403 / 统一跳转四类陷阱站）
+- **测试**：`python -m unittest discover -s tests` —— 65 项，含**可控靶站集成测试**
+  （`tests/mock_server.py` 模拟 SPA 软 404 / JSON catch-all / 全局 403 / 统一跳转 / JS 线索站等陷阱场景）
 - **审计报告**：[docs/audit-20260924.md](docs/audit-20260924.md) —— 对探测模块做对抗性审计：
   修复"无软 404 基线"（SPA 站点曾 19 条全部假存活）与"命中不复验存活"两个严重问题，
   修复后**假阳性归零、真阳性零损失**，并固化为 CI 回归测试。

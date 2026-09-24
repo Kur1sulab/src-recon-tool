@@ -88,6 +88,17 @@ def cmd_all(args):
         print(f"[*] 目标站点探测 base = {base}")
         run_fingerprint(base, out)
         run_api(base, out)
+        # ── 第二轮升级：端口扫描 + JS 情报（失败只警告，不阻断主流程）──
+        from modules.portscan import run_portscan
+        from modules.jsintel import run_jsintel
+        try:
+            run_portscan(target, out)          # 对裸 IP 扫常用端口
+        except Exception as e:
+            print(f"[!] 端口扫描失败（不影响主流程）: {e}")
+        try:
+            run_jsintel(base, out)             # 对探测入口抓 JS 线索
+        except Exception as e:
+            print(f"[!] JS 情报提取失败（不影响主流程）: {e}")
     else:
         # ── 域名分支：子域 → 存活验证 → 资产 → ICP → 指纹 → 路径 → API → LLM ──
         from modules.subdomain import run_subdomain, run_verify
@@ -105,6 +116,17 @@ def cmd_all(args):
         run_fingerprint(base, out)
         run_paths(base, out)
         run_api(base, out)
+        # ── 第二轮升级：JS 情报提取 + 端口扫描（失败只警告，不阻断主流程）──
+        from modules.jsintel import run_jsintel
+        from modules.portscan import run_portscan
+        try:
+            run_jsintel(base, out)
+        except Exception as e:
+            print(f"[!] JS 情报提取失败（不影响主流程）: {e}")
+        try:
+            run_portscan(target, out)
+        except Exception as e:
+            print(f"[!] 端口扫描失败（不影响主流程）: {e}")
     run_llm(out)
     from modules.report import run_report
     run_report(out, target)                   # 聚合资产档案 + 证据包
