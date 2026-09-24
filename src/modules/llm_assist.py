@@ -8,7 +8,11 @@ OpenAI 兼容 API，环境变量:
 """
 import json
 import os
-import urllib.request
+
+try:
+    from . import netutil
+except ImportError:
+    import netutil
 
 
 def _load(out: str, name: str) -> str:
@@ -44,17 +48,16 @@ def run_llm(out: str):
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.3,
     }).encode()
-    req = urllib.request.Request(
-        f"{base.rstrip('/')}/chat/completions", data=payload,
+    r = netutil.fetch(
+        f"{base.rstrip('/')}/chat/completions", timeout=60, method="POST", data=payload,
         headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"})
     try:
-        with urllib.request.urlopen(req, timeout=60) as r:
-            data = json.load(r)
+        if not (r.get("ok") and r.get("status") == 200):
+            raise RuntimeError(r.get("error") or f"HTTP {r.get('status')}")
+        data = json.loads(r.get("body") or "{}")
         summary = data["choices"][0]["message"]["content"]
     except Exception as e:
         print(f"[!] LLM 请求失败: {e}")
         return
-    path = os.path.join(out, "llm_summary.md")
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(summary)
+    path = netutil.safe_write(out, "llm_summary.md", summary)
     print(f"[+] LLM 辅助分析完成 -> {path}")

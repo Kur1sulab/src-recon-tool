@@ -58,10 +58,9 @@ def run_paths(url: str, out: str) -> list:
         elif status in (301, 302):
             row["verdict"] = f"跳转 → {row.get('final_url')}"
             notes.append(row)
-    path = os.path.join(out, "paths.json")
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump({"base": url, "baseline": bl, "alive": alive, "notes": notes}, f,
-                  ensure_ascii=False, indent=2)
+    path = netutil.safe_write(out, "paths.json",
+                              json.dumps({"base": url, "baseline": bl, "alive": alive, "notes": notes},
+                                         ensure_ascii=False, indent=2))
     print(f"[+] 敏感路径探测完成（存活 {len(alive)} 个，另有 {len(notes)} 条被拒绝/跳转/基线过滤）-> {path}")
     for row in alive:
         print(f"      [可访问] {row['path']}  ({row['status']}, {row['size']}B, 复验通过)")

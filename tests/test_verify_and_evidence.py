@@ -17,6 +17,11 @@ sys.path.insert(0, os.path.join(ROOT, "tests"))
 
 from mock_server import serve                       # noqa: E402
 
+try:                                                # 与被测模块同款导入兜底
+    from modules import netutil
+except ImportError:
+    import netutil
+
 OUT = os.path.join(ROOT, "out", "_unittest2")
 BOGUS = "no-such-host-abcxyz-definitely-invalid.invalid"
 
@@ -70,8 +75,7 @@ class TestVerifySubs(unittest.TestCase):
         from modules.subdomain import run_verify
         out = os.path.join(OUT, "verifycase")
         os.makedirs(out, exist_ok=True)
-        with open(os.path.join(out, "subdomains.txt"), "w", encoding="utf-8") as f:
-            f.write(f"localhost\n{BOGUS}\n")
+        netutil.safe_write(out, "subdomains.txt", f"localhost\n{BOGUS}\n")
         rows = _quiet(run_verify, out, do_http=False)
         self.assertEqual(len(rows), 2)
         for fn in ("subdomains_live.json", "subdomains_live.txt"):

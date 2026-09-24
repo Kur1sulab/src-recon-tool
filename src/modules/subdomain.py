@@ -5,11 +5,14 @@
 """
 import json
 import os
-import ssl
 import subprocess
 import sys
 import time
-import urllib.request
+
+try:
+    from . import netutil
+except ImportError:
+    import netutil
 
 _UA = {"User-Agent": "src-recon-tool/1.0 (+authorized-testing-only)"}
 
@@ -42,21 +45,20 @@ def _from_oneforall(domain: str, out: str) -> list:
 
 def _from_crtsh(domain: str, tries: int = 3) -> list:
     """crt.sh 偶发 502/超时，做 3 次退避重试；彻底失败时优雅返回空列表而非抛栈。"""
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-    url = f"https://crt.sh/?q=%25.{domain}&output=json"
+    url = netutil.check_http_url(f"https://crt.sh/?q=%25.{domain}&output=json")
     data = None
     for i in range(1, tries + 1):
-        try:
-            req = urllib.request.Request(url, headers=_UA)
-            with urllib.request.urlopen(req, timeout=30, context=ctx) as r:
-                data = json.load(r)
-            break
-        except Exception as e:
-            print(f"[!] crt.sh 第 {i}/{tries} 次请求失败: {e}")
-            if i < tries:
-                time.sleep(2 * i)
+        r = netutil.fetch(url, timeout=30)
+        if r.get("ok") and r.get("status") == 200 and r.get("body"):
+            try:
+                data = json.loads(r["body"])
+                break
+            except ValueError as e:
+                print(f"[!] crt.sh 第 {i}/{tries} 次响应解析失败: {e}")
+        else:
+            print(f"[!] crt.sh 第 {i}/{tries} 次请求失败: {r.get('error') or r.get('status')}")
+        if i < tries:
+            time.sleep(2 * i)
     if data is None:
         print("[!] crt.sh 不可用（重试均失败）。可设置 ONEFORALL_HOME 走 OneForAll，或稍后重试")
         return []
@@ -71,11 +73,13 @@ def _from_crtsh(domain: str, tries: int = 3) -> list:
 
 def _from_certspotter(domain: str) -> list:
     """备用证书日志源（crt.sh 挂掉时兜底）：certspotter 公开 API，无需 key。"""
-    url = ("https://api.certspotter.com/v1/issuances?domain=%s"
-           "&include_subdomains=true&expand=dns_names" % domain)
-    req = urllib.request.Request(url, headers=_UA)
-    with urllib.request.urlopen(req, timeout=30) as r:
-        data = json.load(r)
+    url = netutil.check_http_url(
+        "https://api.certspotter.com/v1/issuances?domain=%s"
+        "&include_subdomains=true&expand=dns_names" % domain)
+    r = netutil.fetch(url, timeout=30)
+    if not (r.get("ok") and r.get("status") == 200 and r.get("body")):
+        raise RuntimeError(r.get("error") or f"HTTP {r.get('status')}")
+    data = json.loads(r["body"])
     subs = set()
     for row in data if isinstance(data, list) else []:
         for name in row.get("dns_names", []):
@@ -86,7 +90,6 @@ def _from_certspotter(domain: str) -> list:
 
 
 def run_subdomain(domain: str, out: str):
-    result_path = os.path.join(out, "subdomains.txt")
     subs = _from_oneforall(domain, out)
     if subs:
         src = "OneForAll"
@@ -107,8 +110,8 @@ def run_subdomain(domain: str, out: str):
             except Exception as e:
                 print(f"[!] certspotter 也不可用: {e}")
                 subs = []
-    with open(result_path, "w", encoding="utf-8") as f:
-        f.write("\n".join(subs) + ("\n" if subs else ""))
+    result_path = netutil.safe_write(out, "subdomains.txt",
+                                     "\n".join(subs) + ("\n" if subs else ""))
     print(f"[+] 子域枚举完成（{src}，{len(subs)} 个）-> {result_path}")
     return subs
 
@@ -194,10 +197,10 @@ def run_verify(out: str, workers: int = 8, do_http: bool = True) -> list:
     rows = verify_subs(subs, workers=workers, do_http=do_http)
     live = [r for r in rows if r["alive"]]
     web = [r for r in live if r["http"].get("status")]
-    _json.dump(rows, open(os.path.join(out, "subdomains_live.json"), "w", encoding="utf-8"),
-               ensure_ascii=False, indent=2)
-    with open(os.path.join(out, "subdomains_live.txt"), "w", encoding="utf-8") as f:
-        f.write("\n".join(r["host"] for r in live) + ("\n" if live else ""))
+    netutil.safe_write(out, "subdomains_live.json",
+                       _json.dumps(rows, ensure_ascii=False, indent=2))
+    netutil.safe_write(out, "subdomains_live.txt",
+                       "\n".join(r["host"] for r in live) + ("\n" if live else ""))
     print(f"[+] 存活验证完成：可解析 {len(live)} 个（其中 {len(web)} 个有 HTTP 响应）-> subdomains_live.txt / .json")
     for r in live[:20]:
         h = r["http"]

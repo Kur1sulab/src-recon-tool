@@ -8,7 +8,11 @@ import base64
 import json
 import os
 import urllib.parse
-import urllib.request
+
+try:
+    from . import netutil
+except ImportError:
+    import netutil
 
 _UA = {"User-Agent": "src-recon-tool/1.0 (+authorized-testing-only)"}
 
@@ -23,10 +27,12 @@ def _fofa(domain: str) -> list:
         "qbase64": q, "email": email, "key": key,
         "size": 100, "fields": "host,ip,port,protocol",
     })
-    url = f"https://fofa.info/api/v1/search/all?{params}"
-    req = urllib.request.Request(url, headers=_UA)
-    with urllib.request.urlopen(req, timeout=20) as r:
-        data = json.load(r)
+    url = netutil.check_http_url(f"https://fofa.info/api/v1/search/all?{params}")
+    r = netutil.fetch(url, timeout=20)
+    if not (r.get("ok") and r.get("status") == 200 and r.get("body")):
+        print(f"[!] FOFA 请求失败: {r.get('error') or r.get('status')}")
+        return []
+    data = json.loads(r["body"])
     if data.get("error"):
         print(f"[!] FOFA 返回错误: {data.get('errmsg')}")
         return []
@@ -38,11 +44,13 @@ def _hunter(domain: str) -> list:
     if not key:
         return []
     q = base64.b64encode(f'domain="{domain}"'.encode()).decode()
-    url = ("https://hunter.qianxin.com/openApi/search?"
-           f"api-key={key}&search={q}&page=1&page_size=100")
-    req = urllib.request.Request(url, headers=_UA)
-    with urllib.request.urlopen(req, timeout=20) as r:
-        data = json.load(r)
+    url = netutil.check_http_url("https://hunter.qianxin.com/openApi/search?"
+                                 f"api-key={key}&search={q}&page=1&page_size=100")
+    r = netutil.fetch(url, timeout=20)
+    if not (r.get("ok") and r.get("status") == 200 and r.get("body")):
+        print(f"[!] Hunter 请求失败: {r.get('error') or r.get('status')}")
+        return []
+    data = json.loads(r["body"])
     if data.get("code") != 200:
         print(f"[!] Hunter 返回错误: {data.get('message')}")
         return []
@@ -68,8 +76,6 @@ def run_asset(domain: str, out: str):
         print(f"[!] Hunter 查询失败: {e}")
     if not sources:
         print("[!] 未配置 FOFA_EMAIL/FOFA_KEY 或 HUNTER_KEY，跳过资产测绘")
-    path = os.path.join(out, "assets.txt")
-    with open(path, "w", encoding="utf-8") as f:
-        for it in dict.fromkeys(items):
-            f.write(it + "\n")
+    path = netutil.safe_write(out, "assets.txt",
+                              "".join(it + "\n" for it in dict.fromkeys(items)))
     print(f"[+] 资产测绘完成（{'+'.join(sources) if sources else '0 条'}）-> {path}")

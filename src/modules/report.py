@@ -14,6 +14,11 @@ import json
 import os
 import zipfile
 
+try:                                  # 作为包导入时（tests / recon.py）用相对导入
+    from . import netutil
+except ImportError:                   # 直接执行本文件时的兜底
+    import netutil
+
 
 def _read_json(path: str, default=None):
     try:
@@ -43,6 +48,8 @@ def collect(out: str, target: str) -> dict:
         "fingerprint": _read_json(os.path.join(out, "fingerprint.json"), []),
         "paths": _read_json(os.path.join(out, "paths.json"), {}),
         "api": _read_json(os.path.join(out, "api_unauth.json"), {}),
+        "jsintel": _read_json(os.path.join(out, "jsintel.json"), {}),
+        "ports": _read_json(os.path.join(out, "ports.json"), {}),
         "assets": _read_lines(os.path.join(out, "assets.txt")),
         "llm_summary": "",
     }
@@ -133,8 +140,45 @@ def render_md(b: dict) -> str:
           f"存活命中 {aj.get('live_hits', 0)} 个（证据已落盘，**勿直接外传，脱敏后引用**）")
         a("")
 
+    js = b["jsintel"] if isinstance(b["jsintel"], dict) else {}
+    if js.get("endpoints") or js.get("sensitive") or any((js.get("domains") or {}).values()):
+        sc = js.get("scripts", {})
+        a("## 6. JS 线索（jsintel，前端接口挖掘）\n")
+        a(f"- 页面状态 {js.get('page_status')}；外链 JS 下载成功 {sc.get('downloaded', 0)}/"
+          f"{sc.get('external', 0)}，内联 {sc.get('inline', 0)} 段；端点线索 **{len(js.get('endpoints', []))}** 条")
+        for u in (js.get("endpoints_full") or [])[:15]:
+            a(f"  - `{u}`")
+        if len(js.get("endpoints_full") or []) > 15:
+            a(f"  - … 其余 {len(js['endpoints_full']) - 15} 条见 `jsintel.json`")
+        sen = js.get("sensitive") or []
+        if sen:
+            a(f"\n敏感线索 {len(sen)} 处（**值已打码，仅位置提示**，线索≠漏洞，需人工复核）：\n")
+            a("| 位置 | 键 | 值（打码） | 片段 |")
+            a("|---|---|---|---|")
+            for s_ in sen[:20]:
+                a(f"| `{s_.get('file')}:{s_.get('line')}` | {s_.get('key')} | "
+                  f"{s_.get('value')} | `{(s_.get('snippet') or '')[:40]}` |")
+        d = js.get("domains") or {}
+        if d:
+            a(f"\n- 域名线索：子域/同域 {len(d.get('subdomains') or [])} 个"
+              f"（{', '.join((d.get('subdomains') or [])[:8]) or '-'}）· "
+              f"第三方域 {len(d.get('thirdparty') or [])} 个 · 内网 IP {len(d.get('internal_ips') or [])} 个")
+        a("")
+
+    pj2 = b["ports"] if isinstance(b["ports"], dict) else {}
+    open_rows = pj2.get("open") or []
+    if open_rows:
+        a("## 7. 开放端口（portscan，常用端口表）\n")
+        a(f"- 目标 {pj2.get('target')}（{pj2.get('ip') or '未解析'}），扫描 {pj2.get('scanned')} 个端口，"
+          f"开放 **{len(open_rows)}** 个\n")
+        a("| 端口 | 服务 | banner（截断） |")
+        a("|---|---|---|")
+        for r in open_rows[:40]:
+            a(f"| {r.get('port')} | {r.get('service') or '-'} | {(r.get('banner') or '')[:40]} |")
+        a("")
+
     if b["llm_summary"]:
-        a("## 6. LLM 辅助小结\n")
+        a("## 8. LLM 辅助小结\n")
         a(b["llm_summary"])
         a("")
 
@@ -168,9 +212,7 @@ def pack_evidence(out: str, target: str) -> str:
 def run_report(out: str, target: str) -> str:
     b = collect(out, target)
     md = render_md(b)
-    path = os.path.join(out, "report.md")
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(md)
+    path = netutil.safe_write(out, "report.md", md)
     print(f"[+] 资产档案已生成 -> {path}")
     zp = pack_evidence(out, target)
     if zp:

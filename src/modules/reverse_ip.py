@@ -7,11 +7,12 @@
 输出 reverse_domains.txt。
 """
 import re
-import ssl
 import time
-import urllib.request
 
-_UA = {"User-Agent": "src-recon-tool/1.0 (+authorized-testing-only)"}
+try:
+    from . import netutil
+except ImportError:
+    import netutil
 
 # 只保留合法域名（过滤 ip6.arpa 之类的反向解析残留）
 _DOMAIN_RE = re.compile(r"^(?!-)[a-z0-9-]{1,63}(?<!-)(\.[a-z0-9-]{1,63})+$", re.I)
@@ -35,18 +36,13 @@ def parse_hackertarget(text: str) -> list:
 def _fetch(url: str, tries: int = 3) -> str:
     last = None
     for i in range(1, tries + 1):
-        try:
-            ctx = ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
-            req = urllib.request.Request(url, headers=_UA)
-            with urllib.request.urlopen(req, timeout=25, context=ctx) as r:
-                return r.read().decode("utf-8", "ignore")
-        except Exception as e:
-            last = e
-            print(f"[!] 反查第 {i}/{tries} 次失败: {e}")
-            if i < tries:
-                time.sleep(2 * i)
+        r = netutil.fetch(url, timeout=25)
+        if r.get("ok") and r.get("status") == 200 and r.get("body"):
+            return r["body"]
+        last = r.get("error") or f"HTTP {r.get('status')}"
+        print(f"[!] 反查第 {i}/{tries} 次失败: {last}")
+        if i < tries:
+            time.sleep(2 * i)
     print(f"[!] 反查请求全部失败: {last}")
     return ""
 
@@ -57,12 +53,10 @@ def reverse_ip(ip: str) -> list:
 
 
 def run_reverse(ip: str, out: str) -> list:
-    import os
     print(f"[*] IP 反查域名: {ip}")
     doms = reverse_ip(ip)
-    path = os.path.join(out, "reverse_domains.txt")
-    with open(path, "w", encoding="utf-8") as f:
-        f.write("\n".join(doms) + ("\n" if doms else ""))
+    path = netutil.safe_write(out, "reverse_domains.txt",
+                              "\n".join(doms) + ("\n" if doms else ""))
     if doms:
         print(f"[+] 反查完成，共 {len(doms)} 个域名 -> {path}")
         for d in doms[:20]:

@@ -116,8 +116,7 @@ def save_evidence(row: dict, out: str) -> dict:
     url = row.get("url") or (str(row.get("base", "")) + str(row.get("path", "")))
     host = _safe(urlparse(url).netloc.replace(":", "_"))
     slug = _safe(_re.sub(r"[^a-zA-Z0-9]+", "_", str(row.get("path", ""))).strip("_"))
-    d = os.path.join(out, "evidence", host, slug)
-    os.makedirs(d, exist_ok=True)
+    d = netutil.safe_subdir(out, "evidence", host, slug)   # 逐级白名单清洗，杜绝穿越
     ts = datetime.datetime.now().astimezone().isoformat(timespec="seconds")
 
     r = netutil.fetch(url, timeout=15)
@@ -126,14 +125,12 @@ def save_evidence(row: dict, out: str) -> dict:
             "sha1": r.get("sha1"), "ctype": r.get("ctype"), "server": r.get("headers", {}).get("server", ""),
             "name": row.get("name"), "risk": row.get("risk"), "evidence": row.get("evidence"),
             "live": row.get("live"), "recheck": row.get("recheck", {}).get("attempts")}
-    with open(os.path.join(d, "meta.json"), "w", encoding="utf-8") as f:
-        json.dump(meta, f, ensure_ascii=False, indent=2)
-    with open(os.path.join(d, "response.snippet.txt"), "w", encoding="utf-8") as f:
-        f.write(f"# {url}\n# {ts}  status={r.get('status')} size={r.get('size')} "
-                f"ctype={r.get('ctype')} sha1={r.get('sha1')}\n# ⚠️ 可能含敏感信息，勿外传；报告脱敏后引用\n"
-                + "-" * 60 + "\n" + body[:4000])
-    with open(os.path.join(d, "repro.md"), "w", encoding="utf-8") as f:
-        f.write(f"""# 证据：{row.get('name')}（{row.get('risk')}危）
+    netutil.safe_write(d, "meta.json", json.dumps(meta, ensure_ascii=False, indent=2))
+    netutil.safe_write(d, "response.snippet.txt",
+                       f"# {url}\n# {ts}  status={r.get('status')} size={r.get('size')} "
+                       f"ctype={r.get('ctype')} sha1={r.get('sha1')}\n# ⚠️ 可能含敏感信息，勿外传；报告脱敏后引用\n"
+                       + "-" * 60 + "\n" + body[:4000])
+    netutil.safe_write(d, "repro.md", f"""# 证据：{row.get('name')}（{row.get('risk')}危）
 
 - URL：`{url}`
 - 采集时间：{ts}
@@ -177,10 +174,10 @@ def run_api(url: str, out: str, evidence: bool = True) -> list:
                 print(f"      存证 {h['path']} -> {os.path.relpath(ev['dir'], out)}")
             except Exception as e:
                 print(f"      [!] {h['path']} 存证失败: {e}")
-    path = os.path.join(out, "api_unauth.json")
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump({"base": url, "probed": len(rows), "hits": hits, "live_hits": len(live),
-                   "soft404_filtered": len(soft), "all": rows}, f, ensure_ascii=False, indent=2)
+    path = netutil.safe_write(out, "api_unauth.json",
+                              json.dumps({"base": url, "probed": len(rows), "hits": hits, "live_hits": len(live),
+                                          "soft404_filtered": len(soft), "all": rows},
+                                         ensure_ascii=False, indent=2))
     if hits:
         print(f"[+] 探测完成：{len(hits)} 个疑似命中，其中**存活复验通过 {len(live)} 个**"
               f"（catch-all 过滤掉 {len(soft)} 条）")

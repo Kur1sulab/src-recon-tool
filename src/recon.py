@@ -9,6 +9,8 @@
   python src/recon.py reverse -i 47.100.49.228    # IP 反查域名
   python src/recon.py icp -d example.com          # ICP 备案查询
   python src/recon.py api -u https://example.com  # API 文档/未授权探测
+  python src/recon.py jsintel -u https://example.com  # JS 情报提取（端点/敏感线索/域名）
+  python src/recon.py portscan -t 47.100.49.228   # 常用端口扫描（仅限授权目标）
   python src/recon.py fingerprint -u https://example.com
   python src/recon.py paths -u https://example.com
   python src/recon.py poc -t https://example.com -p pocs/example.yaml
@@ -21,7 +23,6 @@ import ipaddress
 import os
 import socket
 import sys
-import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -41,21 +42,24 @@ def make_outdir(target: str) -> str:
 
 
 def pick_base(host: str) -> str:
-    """给主机挑一个能通的 base URL：优先 https，失败退 http。"""
-    ctx = None
-    import ssl
+    """给主机挑一个能通的 base URL：优先 https，失败退 http。
+
+    统一走 netutil.fetch（不抛异常），请求前做协议/边界校验：
+    授权测试允许内网目标，故显式 allow_private=True 放行私网。
+    """
+    try:
+        from modules import netutil
+    except ImportError:
+        import netutil
     for scheme in ("https", "http"):
         url = f"{scheme}://{host}"
         try:
-            c = ssl.create_default_context()
-            c.check_hostname = False
-            c.verify_mode = ssl.CERT_NONE
-            req = urllib.request.Request(url, headers={"User-Agent": "src-recon-tool/1.0"})
-            with urllib.request.urlopen(req, timeout=10, context=c) as r:
-                if r.status < 500:
-                    return url
-        except Exception:
+            url = netutil.check_http_url(url, allow_private=True)
+        except ValueError:
             continue
+        r = netutil.fetch(url, timeout=10)
+        if r.get("ok") and isinstance(r.get("status"), int) and r["status"] < 500:
+            return url
     return f"https://{host}"
 
 
@@ -123,6 +127,13 @@ def main():
     pk = sub.add_parser("api"); pk.add_argument("-u", "--url", required=True)
     pf = sub.add_parser("fingerprint"); pf.add_argument("-u", "--url", required=True)
     pp = sub.add_parser("paths"); pp.add_argument("-u", "--url", required=True)
+    pj = sub.add_parser("jsintel"); pj.add_argument("-u", "--url", required=True)
+    pj.add_argument("--max-files", type=int, default=60, help="最多下载的外链 JS 数（默认 60，防失控）")
+    pj.add_argument("--workers", type=int, default=6, help="下载并发（默认 6，低频克制）")
+    pn = sub.add_parser("portscan"); pn.add_argument("-t", "--target", required=True, help="域名或 IP（仅限授权目标）")
+    pn.add_argument("--ports", default="", help="如 80,443,8000-8100（默认内置常用端口表 ~100 个）")
+    pn.add_argument("--timeout", type=float, default=1.5, help="单端口连接超时秒数（默认 1.5）")
+    pn.add_argument("--workers", type=int, default=32, help="并发数（默认 32，上限 32）")
     pc = sub.add_parser("poc"); pc.add_argument("-t", "--target", required=True); pc.add_argument("-p", "--poc", required=True)
     pl = sub.add_parser("llm"); pl.add_argument("-d", "--domain", required=True)
     pr2 = sub.add_parser("report"); pr2.add_argument("-t", "--target", "-d", "--domain", dest="target",
@@ -158,6 +169,13 @@ def main():
     elif args.cmd == "paths":
         from modules.paths import run_paths
         run_paths(args.url, make_outdir(args.url))
+    elif args.cmd == "jsintel":
+        from modules.jsintel import run_jsintel
+        run_jsintel(args.url, make_outdir(args.url), workers=args.workers, max_files=args.max_files)
+    elif args.cmd == "portscan":
+        from modules.portscan import run_portscan
+        run_portscan(args.target, make_outdir(args.target), ports=args.ports,
+                     timeout=args.timeout, workers=args.workers)
     elif args.cmd == "poc":
         from modules.poc_engine import run_poc
         run_poc(args.target, args.poc)

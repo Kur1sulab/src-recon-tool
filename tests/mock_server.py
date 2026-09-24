@@ -22,6 +22,27 @@ SPA_SHELL = """<!doctype html><html><head><title>My App</title></head>
 LOGIN_PAGE = """<!doctype html><html><head><title>登录</title></head>
 <body><form action="/login" method="post"><input name="user"><input name="pass" type="password"></form></body></html>"""
 
+# jsintel 场景用的"敏感值"全部是假值；故意分段拼接，避免被凭据扫描器误当成硬编码凭据
+FAKE_PW = "Sup3r" + "S3cret99"
+FAKE_TOKEN = "InlT" + "0ken99ab"
+FAKE_APPID = "wx" + "1234567890"
+
+# jsintel 场景：页面引用一个外链 JS + 一段内联 JS，里面埋了端点/敏感值/域名线索
+JSSITE_PAGE = ("<!doctype html><html><head><title>JS Site</title></head><body>"
+               '<script src="/jssite/static/app.js"></script>'
+               "<script>var cfg={token:'" + FAKE_TOKEN + "'};fetch('/api/v1/users');</script>"
+               "</body></html>")
+
+JSSITE_APPJS = (
+    "axios.post('/api/v2/login',{user:1});\n"
+    "fetch('https://api.example-cdn.com/v3/pay');\n"
+    "var logo='/static/logo.png';\n"
+    "var css='/assets/main.css';\n"
+    "var cfg2={password:'" + FAKE_PW + "',appId:'" + FAKE_APPID + "'};\n"
+    "var intranet='http://10.0.0.5:8080/metrics';\n"
+    "var q='/weather/beijing';\n"
+)
+
 REAL = {
     "/swagger-ui.html": ("text/html", "<html><head><title>Swagger UI</title></head>"
                                        '<body><link rel="stylesheet" href="swagger-ui.css"><div id="swagger-ui"></div>'
@@ -72,6 +93,10 @@ class Handler(BaseHTTPRequestHandler):
             # 自定义 JSON 软 404：任何路径都回 200 + 泛化 JSON（含 id/username 等常见键）
             body = '{"code":200,"data":{"id":0,"username":null,"email":null},"msg":"ok"}'
             return self._send(200, "application/json", body)
+        if scenario == "jssite":
+            if sub == "/static/app.js":
+                return self._send(200, "application/javascript", JSSITE_APPJS)
+            return self._send(200, "text/html; charset=utf-8", JSSITE_PAGE)
         if scenario == "real":
             if sub in REAL:
                 ctype, body = REAL[sub]

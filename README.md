@@ -18,6 +18,7 @@ SRC 漏洞挖掘信息收集自动化工具（Python）。将子域枚举、资�
 | fingerprint | 内置常用指纹规则（ThinkPHP/Shiro/Spring/WordPress/Nginx/Tomcat/Actuator/Nacos/Jenkins/Grafana/Elasticsearch 等，headers+body 双通道） |
 | paths | 敏感路径探测（.git/.env/swagger/actuator/druid 等；**软 404 基线过滤 + 存活复验**，SPA/WAF 站点不再满屏假存活） |
 | **api** | **API 文档暴露 / 未授权探测**（27 个候选端点：Swagger/OpenAPI、Actuator、Druid、GraphQL、Eureka/Nacos/Consul、pprof、heapdump…**软 404 基线过滤 + 命中后存活复验**；存活命中自动进入**取证模式**：落盘响应片段 + 可直接复跑的 curl 复现稿） |
+| **jsintel** | **JS 情报提取**（前端接口挖掘：抓目标页 + 外链 JS（并发 ≤6 / 单文件 ≤2MB / 只 GET），提取 ① API 端点线索——规范化去重、滤静态资源，绝对 URL 可直接喂给 api/paths 复核；② 敏感线索——key/secret/token/password/appid… 只标文件+行号+片段，**值打码（只留前 4 位）**；③ 域名线索——子域/第三方域/内网 IP 归类。WAF/异常站点优雅降级，线索≠漏洞需人工复核） |
 | poc | YAML 化 POC 模板引擎（nuclei 风格子集，status/contains matcher，and/or 条件） |
 | **report** | **资产档案 + 证据包**（把所有模块产出聚合成 `report.md`：归属线索/子域存活/指纹/敏感路径/API 暴露 + 待人工跟进；并把 `evidence/` 打成 zip 随提交稿交付；`all` 自动生成） |
 | llm | LLM 辅助资产分级与攻击面总结（可选，无 key 自动降级） |
@@ -52,6 +53,7 @@ python src/recon.py asset -d example.com      # 仅资产测绘
 python src/recon.py reverse -i 47.100.49.228  # 仅 IP 反查域名
 python src/recon.py icp -d example.com        # 仅 ICP 备案查询
 python src/recon.py api -u https://example.com        # 仅 API 文档/未授权探测
+python src/recon.py jsintel -u https://example.com    # 仅 JS 情报提取（端点/敏感线索/域名）
 python src/recon.py fingerprint -u https://example.com
 python src/recon.py paths -u https://example.com
 python src/recon.py poc -t https://example.com -p pocs/example-http-detect.yaml

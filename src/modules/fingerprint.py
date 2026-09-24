@@ -3,10 +3,12 @@
 输出命中的 CMS/框架/中间件。规则可按 EHole 思路自行扩充。
 """
 import json
-import os
 import re
-import ssl
-import urllib.request
+
+try:
+    from . import netutil
+except ImportError:
+    import netutil
 
 _UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) src-recon-tool/1.0"}
 
@@ -48,16 +50,19 @@ RULES = [
 
 def run_fingerprint(url: str, out: str):
     hits = []
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
     try:
-        req = urllib.request.Request(url, headers=_UA)
-        with urllib.request.urlopen(req, timeout=15, context=ctx) as r:
-            body = r.read(300000).decode("utf-8", "ignore").lower()
-            headers = "\n".join(f"{k}: {v}" for k, v in r.headers.items()).lower()
-    except Exception as e:
-        print(f"[!] 指纹识别请求失败: {e}")
+        # 目标由使用者指定（授权测试，可为内网资产），显式放行私网；协议白名单仍强制
+        url = netutil.check_http_url(url, allow_private=True)
+    except ValueError as e:
+        print(f"[!] 非法探测目标: {e}")
+        url = ""
+    r = netutil.fetch(url, timeout=15, max_bytes=300000) if url else {}
+    if r.get("ok") and r.get("status") == 200:
+        body = (r.get("body") or "").lower()
+        headers = "\n".join(f"{k}: {v}" for k, v in (r.get("headers") or {}).items()).lower()
+    else:
+        if url:
+            print(f"[!] 指纹识别请求失败: {r.get('error') or r.get('status')}")
         body = headers = ""
     for rule in RULES:
         haystack = headers if rule["where"] == "header" else body
@@ -65,8 +70,6 @@ def run_fingerprint(url: str, out: str):
             if any(h["name"] == rule["name"] for h in hits):   # 同一指纹多规则命中只记一次
                 continue
             hits.append({"name": rule["name"], "type": rule["type"]})
-    path = os.path.join(out, "fingerprint.json")
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(hits, f, ensure_ascii=False, indent=2)
+    path = netutil.safe_write(out, "fingerprint.json", json.dumps(hits, ensure_ascii=False, indent=2))
     names = "、".join(h["name"] for h in hits) or "无"
     print(f"[+] 指纹识别完成（{len(hits)} 个命中: {names}）-> {path}")

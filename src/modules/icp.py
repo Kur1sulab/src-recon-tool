@@ -10,10 +10,13 @@ demo 额度（id/key = 88888888）为官方公开示例，频次有限；
 import json
 import os
 import time
-import urllib.request
+
+try:
+    from . import netutil
+except ImportError:
+    import netutil
 
 _API = "https://cn.apihz.cn/api/wangzhan/icp.php"
-_UA = {"User-Agent": "src-recon-tool/1.0 (+authorized-testing-only)"}
 
 
 def parse_icp(payload) -> dict:
@@ -44,24 +47,22 @@ def query_icp(domain: str, tries: int = 3) -> dict:
     url = f"{_API}?id={cid}&key={key}&domain={domain}"
     last = ""
     for i in range(1, tries + 1):
-        try:
-            req = urllib.request.Request(url, headers=_UA)
-            with urllib.request.urlopen(req, timeout=20) as r:
-                return parse_icp(r.read().decode("utf-8", "ignore"))
-        except Exception as e:
-            last = str(e)
-            print(f"[!] ICP 查询第 {i}/{tries} 次失败: {e}")
-            if i < tries:
-                time.sleep(2 * i)
+        r = netutil.fetch(url, timeout=20)
+        if r.get("ok") and r.get("status") == 200 and r.get("body"):
+            return parse_icp(r["body"])
+        last = r.get("error") or f"HTTP {r.get('status')}"
+        print(f"[!] ICP 查询第 {i}/{tries} 次失败: {last}")
+        if i < tries:
+            time.sleep(2 * i)
     return {"filed": False, "msg": f"请求失败: {last}"}
 
 
 def run_icp(domain: str, out: str) -> dict:
     print(f"[*] ICP 备案查询: {domain}")
     res = query_icp(domain)
-    path = os.path.join(out, f"icp_{domain}.json")   # 多域名时互不覆盖
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump({"domain": domain, **res}, f, ensure_ascii=False, indent=2)
+    # 多域名时互不覆盖（domain 过 safe_filename 白名单后再入文件名）
+    path = netutil.safe_write(out, f"icp_{domain}.json",
+                              json.dumps({"domain": domain, **res}, ensure_ascii=False, indent=2))
     if res.get("filed"):
         print(f"[+] 备案号: {res['icp']}")
         print(f"    主办单位: {res['unit']}    类型: {res.get('type') or '-'}    审核: {res.get('time') or '-'}")
