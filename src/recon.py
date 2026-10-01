@@ -20,11 +20,46 @@
 """
 import argparse
 import ipaddress
+import json
 import os
 import socket
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# 桌面壳进度事件落盘路径（--progress-file / RECON_PROGRESS_FILE；空=关闭）
+_PROGRESS_FILE = ""
+
+
+def _emit(event, module="", detail=""):
+    """追加一条进度事件到 JSONL（UTF-8）；任何落盘失败静默吞掉，绝不影响扫描。"""
+    if not _PROGRESS_FILE:
+        return
+    rec = {"ts": round(time.time(), 3), "event": event, "module": module, "detail": str(detail)}
+    try:
+        with open(_PROGRESS_FILE, "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
+def _run_step(name, fn, fatal=True):
+    """模块级插桩：start/done/fail 事件 + 原调用透传。
+
+    fatal=True 时异常照常上抛（流水线失败）；fatal=False 时降级为警告不阻断主流程。
+    """
+    _emit("start", name, "")
+    try:
+        result = fn()
+    except Exception as e:
+        _emit("fail", name, str(e))
+        if fatal:
+            raise
+        print(f"[!] {name} 失败（不影响主流程）: {e}")
+        return None
+    _emit("done", name, "")
+    return result
 
 
 def is_ip(s: str) -> bool:
@@ -74,67 +109,57 @@ def cmd_all(args):
         # ── IP 分支：反查域名 → 逐个 ICP → 指纹 → API 探测 ──
         from modules.reverse_ip import run_reverse
         from modules.icp import run_icp
-        doms = run_reverse(target, out)
-        for d in doms[:5]:                      # 备案查询最多查 5 个，避免限频
-            try:
-                run_icp(d, out)
-            except Exception as e:
-                print(f"[!] {d} 备案查询失败: {e}")
+        doms = _run_step("reverse", lambda: run_reverse(target, out))
+
+        def _icp_loop():
+            for d in (doms or [])[:5]:          # 备案查询最多查 5 个，避免限频
+                try:
+                    run_icp(d, out)
+                except Exception as e:
+                    print(f"[!] {d} 备案查询失败: {e}")
+        _run_step("icp", _icp_loop, fatal=False)
         # 裸 IP 常被按域名路由的站点返回 404，优先用反查出的域名探测
         host = doms[0] if doms else target
         if doms:
             print(f"[*] 用反查域名 {host} 作为探测入口（裸 IP {target} 直连多为 404/默认页）")
         base = pick_base(host)
         print(f"[*] 目标站点探测 base = {base}")
-        run_fingerprint(base, out)
-        run_api(base, out)
+        _run_step("fingerprint", lambda: run_fingerprint(base, out))
+        _run_step("api", lambda: run_api(base, out))
         # ── 第二轮升级：端口扫描 + JS 情报（失败只警告，不阻断主流程）──
         from modules.portscan import run_portscan
         from modules.jsintel import run_jsintel
-        try:
-            run_portscan(target, out)          # 对裸 IP 扫常用端口
-        except Exception as e:
-            print(f"[!] 端口扫描失败（不影响主流程）: {e}")
-        try:
-            run_jsintel(base, out)             # 对探测入口抓 JS 线索
-        except Exception as e:
-            print(f"[!] JS 情报提取失败（不影响主流程）: {e}")
+        _run_step("portscan", lambda: run_portscan(target, out), fatal=False)
+        _run_step("jsintel", lambda: run_jsintel(base, out), fatal=False)
     else:
         # ── 域名分支：子域 → 存活验证 → 资产 → ICP → 指纹 → 路径 → API → LLM ──
         from modules.subdomain import run_subdomain, run_verify
         from modules.asset import run_asset
         from modules.icp import run_icp
         from modules.paths import run_paths
-        run_subdomain(target, out)
-        run_verify(out)                       # 审计补充：证书日志含大量失效域名，必须验证存活
-        run_asset(target, out)
-        try:
-            run_icp(target, out)
-        except Exception as e:
-            print(f"[!] 备案查询失败: {e}")
+        _run_step("subdomain", lambda: run_subdomain(target, out))
+        _run_step("verify", lambda: run_verify(out))      # 审计补充：证书日志含大量失效域名，必须验证存活
+        _run_step("asset", lambda: run_asset(target, out))
+        _run_step("icp", lambda: run_icp(target, out), fatal=False)
         base = pick_base(target)
-        run_fingerprint(base, out)
-        run_paths(base, out)
-        run_api(base, out)
+        _run_step("fingerprint", lambda: run_fingerprint(base, out))
+        _run_step("paths", lambda: run_paths(base, out))
+        _run_step("api", lambda: run_api(base, out))
         # ── 第二轮升级：JS 情报提取 + 端口扫描（失败只警告，不阻断主流程）──
         from modules.jsintel import run_jsintel
         from modules.portscan import run_portscan
-        try:
-            run_jsintel(base, out)
-        except Exception as e:
-            print(f"[!] JS 情报提取失败（不影响主流程）: {e}")
-        try:
-            run_portscan(target, out)
-        except Exception as e:
-            print(f"[!] 端口扫描失败（不影响主流程）: {e}")
-    run_llm(out)
+        _run_step("jsintel", lambda: run_jsintel(base, out), fatal=False)
+        _run_step("portscan", lambda: run_portscan(target, out), fatal=False)
+    _run_step("llm", lambda: run_llm(out))
     from modules.report import run_report
-    run_report(out, target)                   # 聚合资产档案 + 证据包
+    _run_step("report", lambda: run_report(out, target))  # 聚合资产档案 + 证据包
     print(f"[+] 全流程完成，输出目录: {out}")
 
 
 def main():
     p = argparse.ArgumentParser(prog="src-recon-tool", description="SRC 信息收集自动化工具（仅限授权测试）")
+    p.add_argument("--progress-file", dest="progress_file", default="",
+                   help="进度事件 JSONL 落盘路径（桌面壳用；空或环境变量 RECON_PROGRESS_FILE 均可）")
     sub = p.add_subparsers(dest="cmd")
     pa = sub.add_parser("all"); pa.add_argument("-t", "--target", "-d", "--domain", dest="target", required=True,
                                                 help="域名或 IP，自动识别")
@@ -162,54 +187,74 @@ def main():
                                                      required=True, help="按已有产出重新生成资产档案/证据包")
     args = p.parse_args()
 
-    if args.cmd == "all":
-        cmd_all(args)
-    elif args.cmd == "subdomain":
-        from modules.subdomain import run_subdomain, run_verify
-        out = make_outdir(args.domain)
-        run_subdomain(args.domain, out)
-        if getattr(args, "verify", False):
-            run_verify(out)
-    elif args.cmd == "verify":
-        from modules.subdomain import run_verify
-        run_verify(make_outdir(args.domain), workers=getattr(args, "workers", 8))
-    elif args.cmd == "asset":
-        from modules.asset import run_asset
-        run_asset(args.domain, make_outdir(args.domain))
-    elif args.cmd == "reverse":
-        from modules.reverse_ip import run_reverse
-        run_reverse(args.ip, make_outdir(args.ip))
-    elif args.cmd == "icp":
-        from modules.icp import run_icp
-        run_icp(args.domain, make_outdir(args.domain))
-    elif args.cmd == "api":
-        from modules.api_unauth import run_api
-        run_api(args.url, make_outdir(args.url))
-    elif args.cmd == "fingerprint":
-        from modules.fingerprint import run_fingerprint
-        run_fingerprint(args.url, make_outdir(args.url))
-    elif args.cmd == "paths":
-        from modules.paths import run_paths
-        run_paths(args.url, make_outdir(args.url))
-    elif args.cmd == "jsintel":
-        from modules.jsintel import run_jsintel
-        run_jsintel(args.url, make_outdir(args.url), workers=args.workers, max_files=args.max_files)
-    elif args.cmd == "portscan":
-        from modules.portscan import run_portscan
-        run_portscan(args.target, make_outdir(args.target), ports=args.ports,
-                     timeout=args.timeout, workers=args.workers)
-    elif args.cmd == "poc":
-        from modules.poc_engine import run_poc
-        run_poc(args.target, args.poc)
-    elif args.cmd == "llm":
-        from modules.llm_assist import run_llm
-        run_llm(make_outdir(args.domain))
-    elif args.cmd == "report":
-        from modules.report import run_report
-        run_report(make_outdir(args.target), args.target)
-    else:
+    global _PROGRESS_FILE
+    _PROGRESS_FILE = args.progress_file or os.environ.get("RECON_PROGRESS_FILE", "")
+    if not args.cmd:
         p.print_help()
         sys.exit(1)
+    _emit("pipeline_start", "pipeline", args.cmd)
+    if args.cmd != "all":
+        _emit("start", args.cmd, "")
+    try:
+        if args.cmd == "all":
+            cmd_all(args)
+        elif args.cmd == "subdomain":
+            from modules.subdomain import run_subdomain, run_verify
+            out = make_outdir(args.domain)
+            run_subdomain(args.domain, out)
+            if getattr(args, "verify", False):
+                run_verify(out)
+        elif args.cmd == "verify":
+            from modules.subdomain import run_verify
+            run_verify(make_outdir(args.domain), workers=getattr(args, "workers", 8))
+        elif args.cmd == "asset":
+            from modules.asset import run_asset
+            run_asset(args.domain, make_outdir(args.domain))
+        elif args.cmd == "reverse":
+            from modules.reverse_ip import run_reverse
+            run_reverse(args.ip, make_outdir(args.ip))
+        elif args.cmd == "icp":
+            from modules.icp import run_icp
+            run_icp(args.domain, make_outdir(args.domain))
+        elif args.cmd == "api":
+            from modules.api_unauth import run_api
+            run_api(args.url, make_outdir(args.url))
+        elif args.cmd == "fingerprint":
+            from modules.fingerprint import run_fingerprint
+            run_fingerprint(args.url, make_outdir(args.url))
+        elif args.cmd == "paths":
+            from modules.paths import run_paths
+            run_paths(args.url, make_outdir(args.url))
+        elif args.cmd == "jsintel":
+            from modules.jsintel import run_jsintel
+            run_jsintel(args.url, make_outdir(args.url), workers=args.workers, max_files=args.max_files)
+        elif args.cmd == "portscan":
+            from modules.portscan import run_portscan
+            run_portscan(args.target, make_outdir(args.target), ports=args.ports,
+                         timeout=args.timeout, workers=args.workers)
+        elif args.cmd == "poc":
+            from modules.poc_engine import run_poc
+            run_poc(args.target, args.poc)
+        elif args.cmd == "llm":
+            from modules.llm_assist import run_llm
+            run_llm(make_outdir(args.domain))
+        elif args.cmd == "report":
+            from modules.report import run_report
+            run_report(make_outdir(args.target), args.target)
+        else:
+            p.print_help()
+            sys.exit(1)
+    except SystemExit:
+        raise
+    except Exception as e:
+        if args.cmd != "all":
+            _emit("fail", args.cmd, str(e))
+        _emit("pipeline_end", "pipeline", "fail")
+        raise
+    else:
+        if args.cmd != "all":
+            _emit("done", args.cmd, "")
+        _emit("pipeline_end", "pipeline", "done")
 
 
 if __name__ == "__main__":
