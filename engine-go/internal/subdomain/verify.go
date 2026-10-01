@@ -1,0 +1,236 @@
+package subdomain
+
+import (
+	"context"
+	"fmt"
+	"net"
+	"os"
+	"regexp"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/Kur1sulab/src-recon-tool/engine-go/internal/netutil"
+)
+
+// DNSLookup 解析域名 → 去重排序的 IP 列表；失败返回空列表（对齐 subdomain.py:121-138）。
+// 注意：排序用字符串字典序（Python sorted 对字符串序），不是 IP 数值序。
+// 本机 Clash fake-ip 环境下假域名可能"解析成功"（198.18.0.0/15），测试锚点一律用
+// 127.0.0.1 字面量，禁止依赖"假域名必须解析失败"。
+func DNSLookup(host string, timeout time.Duration) []string {
+	if timeout <= 0 {
+		timeout = 3 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	addrs, err := net.DefaultResolver.LookupHost(ctx, host)
+	if err != nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var ips []string
+	for _, a := range addrs {
+		if a == "" || seen[a] {
+			continue
+		}
+		seen[a] = true
+		ips = append(ips, a)
+	}
+	sort.Strings(ips)
+	return ips
+}
+
+// ProbeResult 轻量 HTTP 探测结果，JSON 键对齐 Python http_probe 返回 dict。
+type ProbeResult struct {
+	Scheme   string `json:"scheme"`
+	Status   int    `json:"status"`
+	Server   string `json:"server"`
+	Ctype    string `json:"ctype"`
+	Title    string `json:"title"`
+	FinalURL string `json:"final_url"`
+}
+
+var titleRe = regexp.MustCompile(`(?i)<title[^>]*>([^<]{0,80})`)
+
+// HTTPProbe 对单个主机做一次轻量 HTTP 探测（先 https 后 http），
+// 对齐 subdomain.py:141-158。port>0 时拼 :port 后缀；全失败返回零值。
+func HTTPProbe(host string, timeout time.Duration, port int) ProbeResult {
+	suffix := ""
+	if port > 0 {
+		suffix = fmt.Sprintf(":%d", port)
+	}
+	for _, scheme := range []string{"https", "http"} {
+		r := netutil.Fetch(scheme+"://"+host+suffix, netutil.FetchOpt{Timeout: timeout, Follow: true})
+		if r.OK && r.Status != 0 {
+			title := ""
+			if m := titleRe.FindStringSubmatch(r.Body); m != nil {
+				title = strings.TrimSpace(m[1])
+			}
+			return ProbeResult{
+				Scheme:   scheme,
+				Status:   r.Status,
+				Server:   r.Headers["server"],
+				Ctype:    r.Ctype,
+				Title:    title,
+				FinalURL: r.FinalURL,
+			}
+		}
+	}
+	return ProbeResult{}
+}
+
+// VerifyRow 单行验证结果，JSON 键对齐 Python：{host, ips, alive, http}。
+type VerifyRow struct {
+	Host  string      `json:"host"`
+	IPs   []string    `json:"ips"`
+	Alive bool        `json:"alive"`
+	HTTP  ProbeResult `json:"http"`
+}
+
+// VerifySubs 并发（低频）验证子域，对齐 subdomain.py:161-184：
+// 先 DNS 全量解析；可解析者取前 httpCap 个做 HTTP 探活；rows 保持输入序。
+func VerifySubs(subs []string, workers int, doHTTP bool, httpCap int) []VerifyRow {
+	if workers < 1 {
+		workers = 1
+	}
+	if httpCap <= 0 {
+		httpCap = 120
+	}
+	rows := make([]VerifyRow, 0, len(subs))
+	if len(subs) == 0 {
+		return rows
+	}
+	// DNS 全量（并发受 workers 限制，保持输入序）
+	dnsMap := make([][]string, len(subs))
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, workers)
+	for i, h := range subs {
+		wg.Add(1)
+		go func(i int, h string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			dnsMap[i] = DNSLookup(h, 3*time.Second)
+		}(i, h)
+	}
+	wg.Wait()
+	var resolved []string
+	var resolvedIdx []int
+	for i, h := range subs {
+		if len(dnsMap[i]) > 0 {
+			resolved = append(resolved, h)
+			resolvedIdx = append(resolvedIdx, i)
+		}
+	}
+	// HTTP 探活：只做前 httpCap 个可解析主机
+	httpMap := map[int]ProbeResult{}
+	if doHTTP && len(resolved) > 0 {
+		targets := resolvedIdx
+		if len(targets) > httpCap {
+			fmt.Printf("[!] 可解析主机 %d 个，HTTP 探活只做前 %d 个（避免压力）\n", len(resolved), httpCap)
+			targets = targets[:httpCap]
+		}
+		var wg2 sync.WaitGroup
+		sem2 := make(chan struct{}, workers)
+		for _, i := range targets {
+			wg2.Add(1)
+			go func(i int, h string) {
+				defer wg2.Done()
+				sem2 <- struct{}{}
+				defer func() { <-sem2 }()
+				httpMap[i] = HTTPProbe(h, 5*time.Second, 0)
+			}(i, subs[i])
+		}
+		wg2.Wait()
+	}
+	for i, h := range subs {
+		rows = append(rows, VerifyRow{
+			Host:  h,
+			IPs:   dnsMap[i],
+			Alive: len(dnsMap[i]) > 0,
+			HTTP:  httpMap[i],
+		})
+	}
+	return rows
+}
+
+// RunVerify 读取 out/subdomains.txt 验证存活，写 subdomains_live.json（全量）+
+// subdomains_live.txt（仅 live），打印摘要前 20 条，对齐 subdomain.py:187-211。
+func RunVerify(out string, workers int, doHTTP bool) []VerifyRow {
+	src := out + "/subdomains.txt"
+	data, err := readFile(src)
+	if err != nil {
+		fmt.Printf("[!] 找不到 %s，请先跑子域枚举\n", src)
+		return nil
+	}
+	var subs []string
+	for _, l := range strings.Split(string(data), "\n") {
+		l = strings.TrimSpace(l)
+		if l != "" {
+			subs = append(subs, l)
+		}
+	}
+	fmt.Printf("[*] 存活验证：%d 个子域（DNS 解析 + HTTP 探活，并发 %d，低频克制）\n", len(subs), workers)
+	rows := VerifySubs(subs, workers, doHTTP, 120)
+	var live []VerifyRow
+	web := 0
+	for _, r := range rows {
+		if r.Alive {
+			live = append(live, r)
+			if r.HTTP.Status != 0 {
+				web++
+			}
+		}
+	}
+	if _, err := netutil.SafeWrite(out, "subdomains_live.json", marshalPretty(rows)); err != nil {
+		fmt.Printf("[!] subdomains_live.json 写盘失败: %v\n", err)
+	}
+	liveTxt := strings.Join(hosts(live), "\n")
+	if len(live) > 0 {
+		liveTxt += "\n"
+	}
+	if _, err := netutil.SafeWrite(out, "subdomains_live.txt", liveTxt); err != nil {
+		fmt.Printf("[!] subdomains_live.txt 写盘失败: %v\n", err)
+	}
+	fmt.Printf("[+] 存活验证完成：可解析 %d 个（其中 %d 个有 HTTP 响应）-> subdomains_live.txt / .json\n", len(live), web)
+	for i, r := range live {
+		if i >= 20 {
+			break
+		}
+		ipStr := strings.Join(firstN(r.IPs, 2), ",")
+		info := "（无 HTTP 响应）"
+		if r.HTTP.Status != 0 {
+			t := []rune(r.HTTP.Title)
+			if len(t) > 28 {
+				t = t[:28]
+			}
+			info = fmt.Sprintf("%s://%d %s", r.HTTP.Scheme, r.HTTP.Status, string(t))
+		}
+		fmt.Printf("      %-44s %-20s %s\n", r.Host, ipStr, info)
+	}
+	if len(live) > 20 {
+		fmt.Printf("      ... 另 %d 个见 subdomains_live.json\n", len(live)-20)
+	}
+	return rows
+}
+
+func hosts(rows []VerifyRow) []string {
+	var out []string
+	for _, r := range rows {
+		out = append(out, r.Host)
+	}
+	return out
+}
+
+func firstN(s []string, n int) []string {
+	if len(s) > n {
+		return s[:n]
+	}
+	return s
+}
+
+// readFile 读取文件（统一入口便于将来审计）。
+func readFile(path string) ([]byte, error) {
+	return os.ReadFile(path)
+}
