@@ -12,11 +12,13 @@
 
 ```bash
 cd engine-go
-C:/Go/go/bin/go.exe build -o recon-go.exe .    # 零第三方依赖（stdlib-only）
-C:/Go/go/bin/go.exe test ./...                  # 全部单测 + Python↔Go parity
+C:/Go/go/bin/go.exe build -o recon-go.exe ./cmd/recon-go   # 标准布局入口（推荐）
+C:/Go/go/bin/go.exe build -o recon-go.exe .                # 根目录兼容入口，二进制等价
+C:/Go/go/bin/go.exe test ./...                              # 全部单测 + Python↔Go parity
 ```
 
 - Go 1.24+；本仓库零第三方依赖，无需联网拉模块。
+- 入口逻辑在 `internal/cli`，`cmd/recon-go/main.go` 与根 `main.go` 是两个等价薄壳。
 - `go test` 全程零外网：crt.sh/certspotter 打 httptest stub，OneForAll 走
   `testdata/oneforall_fake.py.txt` fixture，subfinder 用注入桩。
 
