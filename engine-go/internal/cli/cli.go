@@ -14,26 +14,33 @@ import (
 
 	"github.com/Kur1sulab/src-recon-tool/engine-go/internal/fingerprint"
 	"github.com/Kur1sulab/src-recon-tool/engine-go/internal/netutil"
+	"github.com/Kur1sulab/src-recon-tool/engine-go/internal/asset"
+	"github.com/Kur1sulab/src-recon-tool/engine-go/internal/apiunauth"
+	"github.com/Kur1sulab/src-recon-tool/engine-go/internal/icp"
+	"github.com/Kur1sulab/src-recon-tool/engine-go/internal/paths"
+	"github.com/Kur1sulab/src-recon-tool/engine-go/internal/poc"
+	"github.com/Kur1sulab/src-recon-tool/engine-go/internal/report"
+	"github.com/Kur1sulab/src-recon-tool/engine-go/internal/reverseip"
 	"github.com/Kur1sulab/src-recon-tool/engine-go/internal/subdomain"
 )
 
 const helpText = `recon-go — SRC 信息收集自动化工具（Go 引擎，仅限授权测试）
 
 用法（DOMAIN 或 IP 都吃，工具自动识别）:
-  recon-go all -t example.com             # 域名/IP 全流程（c2 轮实现）
+  recon-go all -t example.com             # 域名/IP 全流程（c3 轮串联）
   recon-go subdomain -d example.com [--verify]
   recon-go verify -d example.com [-w 8]
-  recon-go asset -d example.com           # c2 轮实现
-  recon-go reverse -i 47.100.49.228       # c2 轮实现
-  recon-go icp -d example.com             # c2 轮实现
-  recon-go api -u https://example.com     # c2 轮实现
-  recon-go jsintel -u https://example.com # c2 轮实现
-  recon-go portscan -t 47.100.49.228      # c2 轮实现
+  recon-go asset -d example.com           # ✅ c2（key 走 FOFA_EMAIL/FOFA_KEY、HUNTER_KEY）
+  recon-go reverse -i 47.100.49.228       # ✅ c2
+  recon-go icp -d example.com             # ✅ c2（APIHZ_ID/APIHZ_KEY 可覆盖）
+  recon-go api -u https://example.com     # ✅ c2（含取证模式）
+  recon-go jsintel -u https://example.com # 待 c3 拍板是否移植
+  recon-go portscan -t 47.100.49.228      # 待 c3 拍板是否移植
   recon-go fingerprint -u https://example.com
-  recon-go paths -u https://example.com   # c2 轮实现
-  recon-go poc -t https://example.com -p pocs/example.yaml  # c2 轮实现
+  recon-go paths -u https://example.com   # ✅ c2
+  recon-go poc -t https://example.com -p pocs/example.yaml  # ✅ c2（YAML 引擎）
   recon-go llm -d example.com             # 已弃用，Go 版不移植（exit 2）
-  recon-go report -t example.com          # c3 轮实现
+  recon-go report -t example.com          # ✅ c2（资产档案+证据包）
 `
 
 // knownCmds 合法子命令集合（argparse 在解析阶段即拒绝未知子命令，进度事件
@@ -172,12 +179,141 @@ func dispatch(cmd string, rest []string) int {
 		fmt.Println("[*] llm 模块已弃用：Go 版不移植（原 Python 侧为可选增强，详见 engine-go/README.md）")
 		return 2
 
-	case "all", "asset", "reverse", "icp", "api", "paths", "jsintel", "portscan", "poc", "report":
-		round := 2
-		if cmd == "report" {
-			round = 3
+	case "asset": // recon.py:177-178：asset -d/--domain
+		fs := newFlagSet()
+		domain := fs.String("d", "", "")
+		domainAlias := fs.String("domain", "", "")
+		if !parseOrUsage(fs, rest, cmd, "asset -d <domain>") {
+			return 2
 		}
-		fmt.Printf("[*] recon-go: 子命令 %q 将在第 %d/3 轮实现（本轮未移植，exit 2 防止静默走错分支）\n", cmd, round)
+		d := pickNonEmpty(*domain, *domainAlias)
+		if d == "" {
+			return missingArgs(cmd, "asset -d <domain>")
+		}
+		out, err := MakeOutdir(d)
+		if err != nil {
+			fmt.Printf("[!] 输出目录创建失败: %v\n", err)
+			return 1
+		}
+		asset.RunAsset(d, out)
+		return 0
+
+	case "reverse": // recon.py:179-180：reverse -i/--ip
+		fs := newFlagSet()
+		ip := fs.String("i", "", "")
+		ipAlias := fs.String("ip", "", "")
+		if !parseOrUsage(fs, rest, cmd, "reverse -i <ip>") {
+			return 2
+		}
+		target := pickNonEmpty(*ip, *ipAlias)
+		if target == "" {
+			return missingArgs(cmd, "reverse -i <ip>")
+		}
+		out, err := MakeOutdir(target)
+		if err != nil {
+			fmt.Printf("[!] 输出目录创建失败: %v\n", err)
+			return 1
+		}
+		reverseip.RunReverse(target, out)
+		return 0
+
+	case "icp": // recon.py:182-183：icp -d/--domain
+		fs := newFlagSet()
+		domain := fs.String("d", "", "")
+		domainAlias := fs.String("domain", "", "")
+		if !parseOrUsage(fs, rest, cmd, "icp -d <domain>") {
+			return 2
+		}
+		d := pickNonEmpty(*domain, *domainAlias)
+		if d == "" {
+			return missingArgs(cmd, "icp -d <domain>")
+		}
+		out, err := MakeOutdir(d)
+		if err != nil {
+			fmt.Printf("[!] 输出目录创建失败: %v\n", err)
+			return 1
+		}
+		icp.RunICP(d, out)
+		return 0
+
+	case "api": // recon.py:185-186：api -u/--url（含取证模式）
+		fs := newFlagSet()
+		u := fs.String("u", "", "")
+		uAlias := fs.String("url", "", "")
+		if !parseOrUsage(fs, rest, cmd, "api -u <url>") {
+			return 2
+		}
+		url := pickNonEmpty(*u, *uAlias)
+		if url == "" {
+			return missingArgs(cmd, "api -u <url>")
+		}
+		out, err := MakeOutdir(url)
+		if err != nil {
+			fmt.Printf("[!] 输出目录创建失败: %v\n", err)
+			return 1
+		}
+		apiunauth.RunAPI(url, out, true)
+		return 0
+
+	case "paths": // recon.py:191-192：paths -u/--url
+		fs := newFlagSet()
+		u := fs.String("u", "", "")
+		uAlias := fs.String("url", "", "")
+		if !parseOrUsage(fs, rest, cmd, "paths -u <url>") {
+			return 2
+		}
+		url := pickNonEmpty(*u, *uAlias)
+		if url == "" {
+			return missingArgs(cmd, "paths -u <url>")
+		}
+		out, err := MakeOutdir(url)
+		if err != nil {
+			fmt.Printf("[!] 输出目录创建失败: %v\n", err)
+			return 1
+		}
+		paths.RunPaths(url, out)
+		return 0
+
+	case "poc": // recon.py:198-199：poc -t/--target -p/--poc
+		fs := newFlagSet()
+		target := fs.String("t", "", "")
+		pocFile := fs.String("p", "", "")
+		if !parseOrUsage(fs, rest, cmd, "poc -t <target> -p <poc>") {
+			return 2
+		}
+		if *target == "" || *pocFile == "" {
+			return missingArgs(cmd, "poc -t <target> -p <poc>")
+		}
+		poc.RunPOC(*target, *pocFile) // recon.py 不以命中与否改变退出码
+		return 0
+
+	case "report": // recon.py:204-206：report -t/--target -d/--domain（dest=target）
+		fs := newFlagSet()
+		target := fs.String("t", "", "")
+		targetAlias := fs.String("target", "", "")
+		domainAlias := fs.String("d", "", "")
+		if !parseOrUsage(fs, rest, cmd, "report -t <target>") {
+			return 2
+		}
+		t := pickNonEmpty3(*target, *targetAlias, *domainAlias)
+		if t == "" {
+			return missingArgs(cmd, "report -t <target>")
+		}
+		out, err := MakeOutdir(t)
+		if err != nil {
+			fmt.Printf("[!] 输出目录创建失败: %v\n", err)
+			return 1
+		}
+		report.RunReport(out, t)
+		return 0
+
+	case "all", "jsintel", "portscan":
+		switch cmd {
+		case "all":
+			fmt.Println("[*] recon-go: 子命令 \"all\" 将在第 3/3 轮串联实现（本轮未移植，exit 2 防止静默走错分支）")
+		default:
+			fmt.Printf("[*] recon-go: 子命令 %q 是否移植待 c3 拍板（本轮未移植，exit 2 防止静默走错分支）\n", cmd)
+		}
 		return 2
 
 	case "help", "-h", "--help":
@@ -281,6 +417,14 @@ func pickNonEmpty(a, b string) string {
 		return a
 	}
 	return b
+}
+
+// pickNonEmpty3 三个候选里取第一个非空值。
+func pickNonEmpty3(a, b, c string) string {
+	if a != "" {
+		return a
+	}
+	return pickNonEmpty(b, c)
 }
 
 // pickInt 取非默认值者优先，两个都等于默认则回默认。
