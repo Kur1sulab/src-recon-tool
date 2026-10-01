@@ -9,6 +9,7 @@ package parity
 
 import (
 	"encoding/json"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -34,6 +35,17 @@ func RequiresPython(t *testing.T) {
 // RunPy 在仓库根运行 python -c <code> [args...]，返回合并输出。
 func RunPy(t *testing.T, code string, args ...string) string {
 	t.Helper()
+	return runPy(t, nil, code, args...)
+}
+
+// RunPyStdin 在仓库根运行 python -c <code>，把 stdin 喂给进程后返回合并输出。
+func RunPyStdin(t *testing.T, stdin string, code string, args ...string) string {
+	t.Helper()
+	return runPy(t, strings.NewReader(stdin), code, args...)
+}
+
+func runPy(t *testing.T, stdin io.Reader, code string, args ...string) string {
+	t.Helper()
 	RequiresPython(t)
 	cmd := exec.Command("python", append([]string{"-c", code}, args...)...)
 	cmd.Dir = RepoRoot()
@@ -41,6 +53,9 @@ func RunPy(t *testing.T, code string, args ...string) string {
 		"PYTHONUTF8=1",
 		"PYTHONPATH="+filepath.Join(RepoRoot(), "src"),
 	)
+	if stdin != nil {
+		cmd.Stdin = stdin
+	}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("python 执行失败: %v\n输出:\n%s", err, out)

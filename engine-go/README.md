@@ -29,17 +29,17 @@ C:/Go/go/bin/go.exe test ./...                              # 全部单测 + Pyt
 | `subdomain -d <domain> [--verify]` | `modules.subdomain.run_subdomain` | ✅ c1 已实现 |
 | `verify -d <domain> [-w 8]` | `modules.subdomain.run_verify` | ✅ c1 已实现 |
 | `fingerprint -u <url>` | `modules.fingerprint.run_fingerprint` | ✅ c1 已实现 |
-| `all -t <domain\|ip>` | `cmd_all` | ⏳ c2 轮（已注册，exit 2 防静默走错） |
-| `asset -d` | `modules.asset` | ⏳ c2 轮（已注册） |
-| `reverse -i <ip>` | `modules.reverse_ip` | ⏳ c2 轮（已注册） |
-| `icp -d` | `modules.icp` | ⏳ c2 轮（已注册） |
-| `api -u` | `modules.api_unauth` | ⏳ c2 轮（已注册） |
-| `paths -u` | `modules.paths` | ⏳ c2 轮（已注册） |
-| `jsintel -u` | `modules.jsintel` | ⏳ c2 前拍板是否纳入（该模块只在本地未推提交里） |
+| `all -t <domain\|ip>` | `cmd_all` | ⏳ c3 轮串联（已注册，exit 2 防静默走错） |
+| `asset -d` | `modules.asset` | ✅ c2（FOFA/Hunter 原生客户端，key 走环境变量） |
+| `reverse -i <ip>` | `modules.reverse_ip` | ✅ c2（hackertarget；域名正则改写为 RE2 兼容 label 校验） |
+| `icp -d` | `modules.icp` | ✅ c2（apihz；限频假 200 防御） |
+| `api -u` | `modules.api_unauth` | ✅ c2（27 端点清单 + 取证三件套） |
+| `paths -u` | `modules.paths` | ✅ c2（19 条字典 + 软 404 基线 + 复验） |
+| `jsintel -u` | `modules.jsintel` | ⏳ 待 c3 拍板是否移植（该模块只在本地提交里） |
 | `portscan -t` | `modules.portscan` | ⏳ 同上 |
-| `poc -t -p` | `modules.poc_engine`（YAML 引擎） | ⏳ c2 轮（已注册，届时引入 yaml.v3） |
+| `poc -t -p` | `modules.poc_engine`（YAML 引擎） | ✅ c2（gopkg.in/yaml.v3，仓库唯一第三方依赖） |
 | `llm -d` | ~~`modules.llm_assist`~~ | ❌ **不移植，弃用**（Python 版也已整体移除该模块，两侧行为一致：提示并 exit 2） |
-| `report -t` | `modules.report` | ⏳ c3 轮（已注册） |
+| `report -t` | `modules.report` | ✅ c2（资产档案 + 证据包 zip） |
 
 未实现命令打印「第 N 轮实现」并 exit 2；无参数打印 help 并 exit 1——**绝不静默
 走错分支**。
@@ -48,15 +48,24 @@ C:/Go/go/bin/go.exe test ./...                              # 全部单测 + Pyt
 
 ```
 engine-go/
-├── main.go                  # 14 子命令分发表 + is_ip/make_outdir/pick_base
+├── main.go                  # 根兼容入口（薄壳）
+├── cmd/recon-go/main.go     # 标准布局入口（薄壳）；CLI 逻辑在 internal/cli
+├── internal/cli/            # 14 子命令分发表 + 进度事件流
 ├── internal/netutil/        # fetch（HTTP 底座）/ urlcheck（SSRF 边界）/
 │                            # safeio（安全落盘）/ baseline（软404/存活复验）
 ├── internal/toolrun/        # 外部工具子进程适配层（OneForAll 主 / subfinder 可选）
 ├── internal/subdomain/      # 子域枚举（OneForAll→subfinder→crt.sh→certspotter）
 │                            # + 存活验证（DNS 全量 + HTTP 探活前 120）
 ├── internal/fingerprint/    # 28 条指纹规则逐字移植（header/body 双通道）
+├── internal/asset/          # c2：FOFA/Hunter 资产测绘（key 走环境变量）
+├── internal/reverseip/      # c2：IP 反查域名（hackertarget）
+├── internal/icp/            # c2：ICP 备案查询（apihz，限频假 200 防御）
+├── internal/paths/          # c2：敏感路径探测（19 条字典 + 基线 + 复验）
+├── internal/apiunauth/      # c2：API 未授权探测（27 端点 + 取证三件套）
+├── internal/poc/            # c2：YAML POC 引擎（gopkg.in/yaml.v3）
+├── internal/report/         # c2：资产档案 render + 证据包 zip
 ├── internal/mockweb/        # httptest 靶站：与 tests/mock_server.py 逐字节对齐
-├── internal/parity/         # Python↔Go parity 测试基建 + 断言矩阵
+├── internal/parity/         # Python↔Go parity 测试基建 + c1/c2 断言矩阵
 └── testdata/                # OneForAll fixture（.txt 后缀合规）
 ```
 
