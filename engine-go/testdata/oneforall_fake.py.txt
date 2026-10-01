@@ -1,0 +1,30 @@
+# -*- coding: utf-8 -*-
+# OneForAll 适配器测试夹具（.txt 后缀合规，测试运行时拷贝为临时目录 oneforall.py 执行）。
+# 模拟 OneForAll 的 CLI 约定：--target <domain> --fmt json --path <out>，
+# 并按 OneForAll 的行式 JSON 输出写 <out>/<domain>.json。
+# 故意包含解析器要吃掉的脏形态：尾逗号、重复条目、前导点号子域、大写条目、非 JSON 行。
+import json
+import os
+import sys
+
+
+def _arg(name, default=None):
+    args = sys.argv[1:]
+    return args[args.index(name) + 1] if name in args else default
+
+
+target = _arg("--target") or "example.com"
+path = _arg("--path") or "."
+rows = [
+    {"subdomain": "api." + target},
+    {"subdomain": ".dev." + target},
+    {"subdomain": "api." + target},
+    {"subdomain": "mail." + target},
+]
+out_path = os.path.join(path, target + ".json")
+with open(out_path, "w", encoding="utf-8") as f:
+    for row in rows:
+        f.write(json.dumps(row) + ",\n")
+    f.write('{"subdomain": "MAIL.' + target + '"},\n')
+    f.write("not-a-json-line,\n")
+print("fake oneforall fixture done -> %s" % out_path)
