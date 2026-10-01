@@ -24,10 +24,16 @@ var (
 )
 
 // 可注入的通道钩子（测试桩点）；retrySleep 供失败重试测试免等待。
+// checkBoundary（fix1 审计 low#7）：通道 URL 请求前边界校验，对齐 Python
+// _from_crtsh/_from_certspotter 里请求前的 check_http_url（默认 allow_private=False）。
+// 单测桩打在 127.0.0.1 httptest 上，由 withStubs 注入放行（Python 侧 monkeypatch
+// fetch 故不受影响）。校验失败走「异常降级」分支：0 次重试直接切下一通道，
+// 对齐 Python check_http_url 抛 ValueError 被 run_subdomain 捕获的语义。
 var (
 	retrySleep   = time.Sleep
 	SubfinderFind = toolrun.FindSubfinder
 	SubfinderRun  = func(path, domain string) ([]string, error) { return toolrun.RunSubfinder(path, domain, 0) }
+	checkBoundary = func(rawURL string) (string, error) { return netutil.CheckHTTPURL(rawURL, false) }
 )
 
 // FromCrtSh 证书透明度日志查询，对齐 subdomain.py:46-71：
@@ -38,6 +44,12 @@ func FromCrtSh(domain string, tries int) []string {
 		tries = 3
 	}
 	url := fmt.Sprintf(CrtShURL, domain)
+	if _, err := checkBoundary(url); err != nil {
+		// 对齐 Python：check_http_url 抛 ValueError → run_subdomain 打印
+		// 「[!] crt.sh 异常」并 0 次重试直接降级 certspotter（不是 3 次退避重试）。
+		fmt.Printf("[!] crt.sh 异常: %v\n", err)
+		return nil
+	}
 	var data []struct {
 		NameValue string `json:"name_value"`
 	}
@@ -74,6 +86,11 @@ func FromCrtSh(domain string, tries int) []string {
 // FromCertspotter 备用证书源，对齐 subdomain.py:74-89：失败返回 error。
 func FromCertspotter(domain string) ([]string, error) {
 	url := fmt.Sprintf(CertspotterURL, domain)
+	if _, err := checkBoundary(url); err != nil {
+		// 对齐 Python：check_http_url 抛 ValueError 原样上抛（run_subdomain
+		// 捕获后打印「[!] certspotter 也不可用」），不发起 HTTP 请求。
+		return nil, err
+	}
 	r := netutil.Fetch(url, netutil.FetchOpt{Timeout: 30 * time.Second, Follow: true})
 	if !(r.OK && r.Status == 200 && r.Body != "") {
 		reason := r.Err
@@ -91,7 +108,10 @@ func FromCertspotter(domain string) ([]string, error) {
 	return collectNames(len(data), func(i int) []string { return data[i].DnsNames }, domain), nil
 }
 
-// collectNames 共用清洗：strip → lower → 去左侧 .* → endswith(domain) 过滤 → 排序去重。
+// collectNames 共用清洗：strip → lower → 去左侧 .* → 剔控制字符 → endswith(domain)
+// 过滤 → 排序去重。fix1（对抗 INFO）：crt.sh 返回数据实测内嵌控制字符（\x01\x02），
+// 原样进 subdomains.txt 会污染产物与下游解析——剔 <0x20 与 0x7f。剔除时机在
+// strip/lower/lstrip 之后，与 Python 侧同步加的清洗位置一致（保证 parity）。
 func collectNames(n int, get func(int) []string, domain string) []string {
 	suffix := strings.ToLower(domain)
 	seen := map[string]bool{}
@@ -100,6 +120,12 @@ func collectNames(n int, get func(int) []string, domain string) []string {
 		for _, raw := range get(i) {
 			name := strings.ToLower(strings.TrimSpace(raw))
 			name = strings.TrimLeft(name, ".*") // Python lstrip("*.")：剥掉左侧所有 . 与 *
+			name = strings.Map(func(r rune) rune {
+				if r < 0x20 || r == 0x7f {
+					return -1
+				}
+				return r
+			}, name)
 			if name == "" || !strings.HasSuffix(name, suffix) || seen[name] {
 				continue
 			}

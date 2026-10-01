@@ -2,6 +2,7 @@ package subdomain
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -81,11 +82,38 @@ func HTTPProbe(host string, timeout time.Duration, port int) ProbeResult {
 }
 
 // VerifyRow 单行验证结果，JSON 键对齐 Python：{host, ips, alive, http}。
+// 空值形态也对齐 Python（fix1 审计 medium#3）：死亡行 ips 序列化为 []（非 null）、
+// http 序列化为 {}（非六字段空对象）——与 Python "ips": dns or [] / http_map.get(h,{})
+// 的落盘形态逐键一致，键序 host,ips,alive,http。
 type VerifyRow struct {
 	Host  string      `json:"host"`
 	IPs   []string    `json:"ips"`
 	Alive bool        `json:"alive"`
 	HTTP  ProbeResult `json:"http"`
+}
+
+// MarshalJSON 落盘形态对齐：nil/空 ips → []；零值探活结果 → {}。
+// Python http_probe 只在 status 为真时返回六键 dict，故以 Status!=0 区分
+// 「探测成功（六键全出）」与「未探测/失败（空对象）」。
+func (r VerifyRow) MarshalJSON() ([]byte, error) {
+	ips := r.IPs
+	if ips == nil {
+		ips = []string{}
+	}
+	httpField := json.RawMessage("{}")
+	if r.HTTP.Status != 0 {
+		b, err := json.Marshal(r.HTTP)
+		if err != nil {
+			return nil, err
+		}
+		httpField = b
+	}
+	return json.Marshal(struct {
+		Host  string          `json:"host"`
+		IPs   []string        `json:"ips"`
+		Alive bool            `json:"alive"`
+		HTTP  json.RawMessage `json:"http"`
+	}{r.Host, ips, r.Alive, httpField})
 }
 
 // VerifySubs 并发（低频）验证子域，对齐 subdomain.py:161-184：
@@ -123,8 +151,12 @@ func VerifySubs(subs []string, workers int, doHTTP bool, httpCap int) []VerifyRo
 			resolvedIdx = append(resolvedIdx, i)
 		}
 	}
-	// HTTP 探活：只做前 httpCap 个可解析主机
-	httpMap := map[int]ProbeResult{}
+	// HTTP 探活：只做前 httpCap 个可解析主机。
+	// httpMap 必须是按索引切片而非 map：各 goroutine 写互不重叠的下标（i），
+	// 与上方 dnsMap 同构，无锁且数据竞争安全——此前用 map[int]ProbeResult
+	// 被 goroutine 无锁并发写，运行时 fatal error: concurrent map writes
+	// 整进程中止（fix1 审计 high#1，30 连跑 16 崩实锤）。
+	httpMap := make([]ProbeResult, len(subs))
 	if doHTTP && len(resolved) > 0 {
 		targets := resolvedIdx
 		if len(targets) > httpCap {

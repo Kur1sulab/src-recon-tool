@@ -66,6 +66,10 @@ def _from_crtsh(domain: str, tries: int = 3) -> list:
     for row in data:
         for name in row.get("name_value", "").splitlines():
             name = name.strip().lower().lstrip("*.")
+            # fix1（对抗发现）：crt.sh 数据实测内嵌控制字符（\x01\x02），
+            # 原样进 subdomains.txt 会污染产物与下游解析——剔 <0x20 与 0x7f。
+            # 剔除时机在 strip/lower/lstrip 之后，与 Go collectNames 同位（parity）。
+            name = "".join(ch for ch in name if ord(ch) >= 0x20 and ord(ch) != 0x7F)
             if name.endswith(domain.lower()):
                 subs.add(name)
     return sorted(subs)

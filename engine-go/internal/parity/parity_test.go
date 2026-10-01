@@ -57,8 +57,8 @@ print(json.dumps(netutil.baseline(sys.argv[1], timeout=5), ensure_ascii=False))
 		if pyStatus != goB.Status {
 			t.Errorf("[%s] status: py=%d go=%d", sc, pyStatus, goB.Status)
 		}
-		if py["sha1"] != goB.SHA1 {
-			t.Errorf("[%s] sha1: py=%v go=%s", sc, py["sha1"], goB.SHA1)
+		if py["digest"] != goB.Digest {
+			t.Errorf("[%s] digest: py=%v go=%s", sc, py["digest"], goB.Digest)
 		}
 		if int(py["size"].(float64)) != goB.Size {
 			t.Errorf("[%s] size: py=%v go=%d", sc, py["size"], goB.Size)
@@ -81,7 +81,7 @@ print(json.dumps(netutil.baseline(sys.argv[1], timeout=5), ensure_ascii=False))
 	}
 }
 
-// ② Fetch 结构化字段 parity（ok/status/size/sha1/ctype/body/final_url）。
+// ② Fetch 结构化字段 parity（ok/status/size/digest/ctype/body/final_url）。
 func TestParityFetch(t *testing.T) {
 	RequiresPython(t)
 	srv := mockweb.New()
@@ -92,7 +92,7 @@ func TestParityFetch(t *testing.T) {
 		py := PyJSON(t, pyNetutilFetch, u, "5")
 		goR := netutil.Fetch(u, netutil.FetchOpt{Timeout: 5 * time.Second, Follow: true})
 		gm := ToMap(t, goR)
-		for _, k := range []string{"ok", "status", "size", "sha1", "ctype", "body", "final_url"} {
+		for _, k := range []string{"ok", "status", "size", "digest", "ctype", "body", "final_url"} {
 			if !reflect.DeepEqual(py[k], gm[k]) {
 				t.Errorf("[%s] %s: py=%v go=%v", path, k, py[k], gm[k])
 			}

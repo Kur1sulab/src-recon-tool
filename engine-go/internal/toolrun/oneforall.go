@@ -32,6 +32,15 @@ func RunOneForAll(home, domain, out string, timeout time.Duration) []string {
 	if strings.TrimSpace(home) == "" {
 		return nil
 	}
+	// out 侧复核（fix1 安全门整改，污点汇合点闭环）：清洗后仍以 ".." 起头的
+	// out（越出工作目录）一律拦截。调用方 MakeOutdir 已做字符级清洗，测试
+	// 传入绝对临时目录亦合法——此处只挡向上逃逸形态。
+	cleanOut := filepath.Clean(out)
+	if cleanOut == ".." || strings.HasPrefix(cleanOut, ".."+string(filepath.Separator)) {
+		fmt.Printf("[!] out 目录越界（含 .. 组件，已拦截）: %q\n", out)
+		return nil
+	}
+	out = cleanOut
 	// 路径纪律（审计修复）：domain 会拼进结果文件名 <out>/<domain>.json（与
 	// Python subdomain.py:31 一致），但合法域名绝不含路径分隔符或 ".."——
 	// 出现即视为非法输入直接返回空（Python 侧同类输入同样读不到文件返回空，
@@ -40,12 +49,28 @@ func RunOneForAll(home, domain, out string, timeout time.Duration) []string {
 		fmt.Printf("[!] 非法域名（含路径字符，已拦截）: %q\n", domain)
 		return nil
 	}
-	exe := filepath.Join(home, "oneforall.py")
+	// home 路径纪律（fix1 安全门整改）：环境变量属使用者显式配置，但仍做
+	// 规范化校验——拒绝含 ".." 悬浮组件的配置（穿越嫌疑），abs+目录存在性
+	// 复核后再拼脚本路径。校验失败打印告警返回空，走降级链。
+	if strings.Contains(home, "..") {
+		fmt.Printf("[!] ONEFORALL_HOME 非法（含 .. 组件，已拦截）: %q\n", home)
+		return nil
+	}
+	absHome, aerr := filepath.Abs(home)
+	if aerr != nil {
+		fmt.Printf("[!] ONEFORALL_HOME 无法解析: %v\n", aerr)
+		return nil
+	}
+	if st, serr := os.Stat(absHome); serr != nil || !st.IsDir() {
+		fmt.Printf("[!] ONEFORALL_HOME 不是存在的目录: %s\n", absHome)
+		return nil
+	}
+	exe := filepath.Join(absHome, "oneforall.py")
 	if st, err := os.Stat(exe); err != nil || st.IsDir() {
 		fmt.Printf("[!] ONEFORALL_HOME 已设置但找不到 %s\n", exe)
 		return nil
 	}
-	if timeout <= 0 {
+if timeout <= 0 {
 		timeout = 1800 * time.Second
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)

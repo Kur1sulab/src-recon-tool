@@ -77,7 +77,7 @@ def probe(base_url: str, timeout: int = 12, verify: bool = True) -> tuple:
         verdict = classify(path, r.get("status"), r.get("body", ""), r.get("ctype", ""), r.get("size", 0),
                            [k.lower() for k in expect])
         row = {"path": path, "name": name, "risk": risk, "status": r.get("status"),
-               "size": r.get("size", 0), "sha1": r.get("sha1", ""), "ctype": r.get("ctype", ""),
+               "size": r.get("size", 0), "digest": r.get("digest", ""), "ctype": r.get("ctype", ""),
                "final_url": r.get("final_url"), "error": r.get("error"), **verdict}
         if verdict.get("hit"):
             if netutil.is_baseline(r, bl):
@@ -122,13 +122,13 @@ def save_evidence(row: dict, out: str) -> dict:
     r = netutil.fetch(url, timeout=15)
     body = r.get("body", "")
     meta = {"url": url, "collected_at": ts, "status": r.get("status"), "size": r.get("size"),
-            "sha1": r.get("sha1"), "ctype": r.get("ctype"), "server": r.get("headers", {}).get("server", ""),
+            "digest": r.get("digest"), "ctype": r.get("ctype"), "server": r.get("headers", {}).get("server", ""),
             "name": row.get("name"), "risk": row.get("risk"), "evidence": row.get("evidence"),
             "live": row.get("live"), "recheck": row.get("recheck", {}).get("attempts")}
     netutil.safe_write(d, "meta.json", json.dumps(meta, ensure_ascii=False, indent=2))
     netutil.safe_write(d, "response.snippet.txt",
                        f"# {url}\n# {ts}  status={r.get('status')} size={r.get('size')} "
-                       f"ctype={r.get('ctype')} sha1={r.get('sha1')}\n# ⚠️ 可能含敏感信息，勿外传；报告脱敏后引用\n"
+                       f"ctype={r.get('ctype')} digest={r.get('digest')}\n# ⚠️ 可能含敏感信息，勿外传；报告脱敏后引用\n"
                        + "-" * 60 + "\n" + body[:4000])
     netutil.safe_write(d, "repro.md", f"""# 证据：{row.get('name')}（{row.get('risk')}危）
 

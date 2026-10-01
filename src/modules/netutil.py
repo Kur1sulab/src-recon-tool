@@ -30,7 +30,7 @@ def fetch(url: str, timeout: int = 12, follow: bool = True, max_bytes: int = 200
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
     out = {"ok": False, "url": url, "status": None, "final_url": url, "size": 0,
-           "sha1": "", "ctype": "", "body": "", "headers": {}}
+           "digest": "", "ctype": "", "body": "", "headers": {}}
     try:
         if urlsplit(url).scheme not in ("http", "https"):
             out["error"] = "仅允许 http/https 协议"
@@ -47,7 +47,7 @@ def fetch(url: str, timeout: int = 12, follow: bool = True, max_bytes: int = 200
         with opener.open(req, timeout=timeout) as r:          # type: ignore[attr-defined]
             raw = r.read(max_bytes)
             out.update(ok=True, status=r.status, size=len(raw),
-                       sha1=hashlib.sha1(raw).hexdigest()[:16],
+                       digest=hashlib.sha256(raw).hexdigest()[:16],
                        ctype=r.headers.get("Content-Type", ""),
                        body=raw.decode("utf-8", "ignore"),
                        final_url=r.geturl(),
@@ -58,7 +58,7 @@ def fetch(url: str, timeout: int = 12, follow: bool = True, max_bytes: int = 200
             raw = e.read(max_bytes)
         except Exception:
             pass
-        out.update(ok=True, status=e.code, size=len(raw), sha1=hashlib.sha1(raw).hexdigest()[:16],
+        out.update(ok=True, status=e.code, size=len(raw), digest=hashlib.sha256(raw).hexdigest()[:16],
                    ctype=e.headers.get("Content-Type", "") if e.headers else "",
                    body=raw.decode("utf-8", "ignore"), final_url=e.geturl() if hasattr(e, "geturl") else url)
     except Exception as e:
@@ -68,10 +68,20 @@ def fetch(url: str, timeout: int = 12, follow: bool = True, max_bytes: int = 200
 
 def safe_filename(s: str) -> str:
     """文件名白名单清洗（仓库统一纪律，同取证目录 _safe）：只保留字母数字与 . _ -，
-    其余一律换 _，去掉首尾点号——外部可控字符串（如域名）进文件名前必须过这里。"""
+    其余一律换 _，去掉首尾点号——外部可控字符串（如域名）进文件名前必须过这里。
+    fix1 P2（与 Go SafeFilename 同步）：Windows 保留设备名主干（con/prn/aux/nul/
+    com1-9/lpt1-9，任意扩展名组合皆保留）命中后在主干后补 _（con.txt → con_.txt）。
+    """
     import re as _re
     s = _re.sub(r"[^A-Za-z0-9._-]", "_", (s or ""))[:64].strip(".")
-    return s or "unknown"
+    if not s:
+        return "unknown"
+    stem, dot, ext = s.partition(".")
+    if stem.lower() in {"con", "prn", "aux", "nul",
+                        *[f"com{i}" for i in range(1, 10)],
+                        *[f"lpt{i}" for i in range(1, 10)]}:
+        s = stem + "_" + dot + ext
+    return s
 
 
 def check_http_url(url: str, allow_private: bool = False) -> str:
@@ -169,7 +179,7 @@ def same_shape(a: dict, b: dict) -> bool:
         return False
     if a.get("status") != b.get("status"):
         return False
-    if a.get("sha1") and a.get("sha1") == b.get("sha1"):
+    if a.get("digest") and a.get("digest") == b.get("digest"):
         return True
     return bool(a.get("size")) and a.get("size") == b.get("size") and a.get("ctype") == b.get("ctype")
 
@@ -177,7 +187,7 @@ def same_shape(a: dict, b: dict) -> bool:
 def baseline(base_url: str, timeout: int = 12) -> dict:
     """取两个随机不存在路径的响应，判断站点是否存在 catch-all 行为。
 
-    返回 {"kind": soft404|uniform403|redirect|normal|unknown, "status", "sha1", "size", "ctype",
+    返回 {"kind": soft404|uniform403|redirect|normal|unknown, "status", "digest", "size", "ctype",
           "final_url", "samples": n}
     """
     base = base_url.rstrip("/")
@@ -194,7 +204,7 @@ def baseline(base_url: str, timeout: int = 12) -> dict:
             kind = "uniform403"
         elif st in (301, 302):
             kind = "redirect"
-    return {"kind": kind, "status": ok[0].get("status"), "sha1": ok[0].get("sha1"),
+    return {"kind": kind, "status": ok[0].get("status"), "digest": ok[0].get("digest"),
             "size": ok[0].get("size"), "ctype": ok[0].get("ctype"),
             "final_url": ok[0].get("final_url"), "samples": 2}
 
@@ -205,7 +215,7 @@ def is_baseline(resp: dict, base: dict) -> bool:
         return False
     if base.get("kind") == "redirect":
         return resp.get("final_url") != resp.get("url")        # 被统一重定向走 = 不算命中
-    return same_shape(resp, {"status": base.get("status"), "sha1": base.get("sha1"),
+    return same_shape(resp, {"status": base.get("status"), "digest": base.get("digest"),
                              "size": base.get("size"), "ctype": base.get("ctype")})
 
 
@@ -214,12 +224,12 @@ def verify_live(url: str, tries: int = 2, timeout: int = 12, expect_body: str = 
     attempts = []
     for _ in range(max(1, tries)):
         r = fetch(url, timeout=timeout)
-        attempts.append({"status": r.get("status"), "size": r.get("size"), "sha1": r.get("sha1")})
+        attempts.append({"status": r.get("status"), "size": r.get("size"), "digest": r.get("digest")})
         if expect_body and expect_body.lower() not in (r.get("body") or "").lower():
             return {"live": False, "attempts": attempts, "note": "复验时特征消失"}
         if not r.get("ok") or r.get("status") != attempts[0]["status"]:
             return {"live": False, "attempts": attempts, "note": "复验状态码不一致"}
-    consistent = all(a["sha1"] and a["sha1"] == attempts[0]["sha1"] for a in attempts) or \
+    consistent = all(a["digest"] and a["digest"] == attempts[0]["digest"] for a in attempts) or \
                  all(a["size"] == attempts[0]["size"] for a in attempts)
     return {"live": bool(consistent), "attempts": attempts,
             "note": "两次一致" if consistent else "两次响应不一致（疑似瞬时/WAF 抖动）"}

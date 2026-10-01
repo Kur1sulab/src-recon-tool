@@ -14,16 +14,66 @@ import (
 )
 
 // withStubs 集中管理包级注入点的保存/恢复（测试串行，无并行竞争）。
+// checkBoundary 一并注入放行：测试桩打在 127.0.0.1 httptest 上，而生产
+// checkBoundary（= CheckHTTPURL allowPrivate=false）会拦私网——Python 侧测试
+// 因 monkeypatch fetch 不触碰真实边界校验，这里等价隔离。
 func withStubs(t *testing.T, fn func()) {
 	t.Helper()
 	oldSleep, oldFind, oldRun := retrySleep, SubfinderFind, SubfinderRun
 	oldCrt, oldCs := CrtShURL, CertspotterURL
+	oldChk := checkBoundary
 	defer func() {
 		retrySleep, SubfinderFind, SubfinderRun = oldSleep, oldFind, oldRun
 		CrtShURL, CertspotterURL = oldCrt, oldCs
+		checkBoundary = oldChk
 	}()
 	retrySleep = func(time.Duration) {} // 测试免退避等待
+	checkBoundary = func(u string) (string, error) { return u, nil }
 	fn()
+}
+
+// TestChannelBoundaryCheckDegradation（fix1 low#7）：生产 checkBoundary
+// （CheckHTTPURL allowPrivate=false）对私网桩 URL 拦截时——
+//   - FromCrtSh：0 次重试（不碰 retrySleep）打印「crt.sh 异常」返回空，
+//     对齐 Python check_http_url 抛 ValueError → run_subdomain 捕获降级；
+//   - FromCertspotter：原样返回 error。
+func TestChannelBoundaryCheckDegradation(t *testing.T) {
+	oldCrt, oldCs := CrtShURL, CertspotterURL
+	defer func() { CrtShURL, CertspotterURL = oldCrt, oldCs }()
+	srv := crtShStub(t, crtShFixture, 0)
+	defer srv.Close()
+	CrtShURL = srv.URL + "/?q=%%25.%s&output=json"
+	CertspotterURL = srv.URL + "/?domain=%s&include_subdomains=true&expand=dns_names"
+
+	sleeps := 0
+	oldSleep := retrySleep
+	retrySleep = func(time.Duration) { sleeps++ }
+	defer func() { retrySleep = oldSleep }()
+
+	if got := FromCrtSh("stub.example.com", 3); got != nil {
+		t.Fatalf("边界拦截应返回空: %v", got)
+	}
+	if sleeps != 0 {
+		t.Fatalf("边界拦截应 0 次重试（对齐 Python 异常降级）, 实际 sleep %d 次", sleeps)
+	}
+	if _, err := FromCertspotter("stub.example.com"); err == nil {
+		t.Fatal("边界拦截应返回 error")
+	}
+}
+
+// TestCollectNamesStripsControlChars（fix1 对抗 INFO）：crt.sh 数据内嵌
+// \x01\x02 控制字符，清洗后再做后缀过滤与去重。
+func TestCollectNamesStripsControlChars(t *testing.T) {
+	got := collectNames(2, func(i int) []string {
+		if i == 0 {
+			return []string{"\x01\x02ctl.stub.example.com", "ok.stub.example.com"}
+		}
+		return []string{"OK.stub.example.com"} // 大小写去重
+	}, "stub.example.com")
+	want := []string{"ctl.stub.example.com", "ok.stub.example.com"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("collectNames = %q, want %q", got, want)
+	}
 }
 
 func crtShStub(t *testing.T, body string, failFirst int) *httptest.Server {

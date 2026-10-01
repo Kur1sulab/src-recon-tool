@@ -13,8 +13,21 @@ var (
 	pathSepRe    = regexp.MustCompile(`[\\/]+`)
 )
 
+// winReservedStems Windows 保留设备名主干（大小写不敏感；带任意扩展名同样保留，
+// 如 con.txt / COM1.zip 在老版 Windows 会劫持到设备）。fix1（对抗 P2）：
+// SafeFilename 白名单原样放行这些名字，命中后在主干后补 _ 规避。
+var winReservedStems = map[string]bool{
+	"con": true, "prn": true, "aux": true, "nul": true,
+	"com1": true, "com2": true, "com3": true, "com4": true, "com5": true,
+	"com6": true, "com7": true, "com8": true, "com9": true,
+	"lpt1": true, "lpt2": true, "lpt3": true, "lpt4": true, "lpt5": true,
+	"lpt6": true, "lpt7": true, "lpt8": true, "lpt9": true,
+}
+
 // SafeFilename 文件名白名单清洗，对齐 netutil.py:69-74：
 // 只保留 [A-Za-z0-9._-]，其余换 _；截 64 字符；去首尾点号；空串回 unknown。
+// fix1 P2：Windows 保留设备名主干（con/nul/aux/com1-9/lpt1-9，任意扩展名组合）
+// 命中则在主干后补 _（con.txt → con_.txt），与 Python safe_filename 同步加固。
 func SafeFilename(s string) string {
 	s = unsafeNameRe.ReplaceAllString(s, "_")
 	r := []rune(s)
@@ -24,6 +37,13 @@ func SafeFilename(s string) string {
 	s = strings.Trim(string(r), ".")
 	if s == "" {
 		return "unknown"
+	}
+	stem, ext := s, ""
+	if i := strings.Index(s, "."); i >= 0 {
+		stem, ext = s[:i], s[i:]
+	}
+	if winReservedStems[strings.ToLower(stem)] {
+		s = stem + "_" + ext
 	}
 	return s
 }

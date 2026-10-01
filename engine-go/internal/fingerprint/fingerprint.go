@@ -109,7 +109,13 @@ func RunFingerprint(rawURL, out string) {
 	}
 	var r netutil.Result
 	if url != "" {
-		r = netutil.Fetch(url, netutil.FetchOpt{Timeout: 15 * time.Second, MaxBytes: 300000, Follow: true})
+		// fix1 P1：跟随重定向时逐跳复验落点（与入口 CheckHTTPURL 同策略
+		// allowPrivate=true），堵「入口校验不约束 302 落点」的边界盲区。
+		r = netutil.Fetch(url, netutil.FetchOpt{Timeout: 15 * time.Second, MaxBytes: 300000, Follow: true,
+			HopCheck: func(next string) error {
+				_, err := netutil.CheckHTTPURL(next, true)
+				return err
+			}})
 	}
 	var body, headers string
 	if r.OK && r.Status == 200 {

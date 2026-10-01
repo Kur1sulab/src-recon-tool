@@ -26,7 +26,7 @@ func SameShape(a, b Result) bool {
 	if a.Status != b.Status {
 		return false
 	}
-	if a.SHA1 != "" && a.SHA1 == b.SHA1 {
+	if a.Digest != "" && a.Digest == b.Digest {
 		return true
 	}
 	return a.Size != 0 && a.Size == b.Size && a.Ctype == b.Ctype
@@ -36,7 +36,7 @@ func SameShape(a, b Result) bool {
 type BaselineResult struct {
 	Kind     string `json:"kind"`
 	Status   int    `json:"status"`
-	SHA1     string `json:"sha1"`
+	Digest   string `json:"digest"`
 	Size     int    `json:"size"`
 	Ctype    string `json:"ctype"`
 	FinalURL string `json:"final_url"`
@@ -75,7 +75,7 @@ func Baseline(baseURL string, timeout time.Duration) BaselineResult {
 		}
 	}
 	return BaselineResult{
-		Kind: kind, Status: oks[0].Status, SHA1: oks[0].SHA1, Size: oks[0].Size,
+		Kind: kind, Status: oks[0].Status, Digest: oks[0].Digest, Size: oks[0].Size,
 		Ctype: oks[0].Ctype, FinalURL: oks[0].FinalURL, Samples: 2,
 	}
 }
@@ -90,14 +90,14 @@ func IsBaseline(resp Result, base BaselineResult) bool {
 	if base.Kind == "redirect" {
 		return resp.FinalURL != resp.URL
 	}
-	return SameShape(resp, Result{Status: base.Status, SHA1: base.SHA1, Size: base.Size, Ctype: base.Ctype})
+	return SameShape(resp, Result{Status: base.Status, Digest: base.Digest, Size: base.Size, Ctype: base.Ctype})
 }
 
 // Attempt 存活复验的单次请求摘要（JSON 键对齐 Python）。
 type Attempt struct {
 	Status int    `json:"status"`
 	Size   int    `json:"size"`
-	SHA1   string `json:"sha1"`
+	Digest string `json:"digest"`
 }
 
 // LiveResult 对齐 Python verify_live() 返回 dict。
@@ -120,7 +120,7 @@ func VerifyLive(rawURL string, tries int, timeout time.Duration, expectBody stri
 	var attempts []Attempt
 	for i := 0; i < tries; i++ {
 		r := Fetch(rawURL, FetchOpt{Timeout: timeout, Follow: true})
-		attempts = append(attempts, Attempt{Status: r.Status, Size: r.Size, SHA1: r.SHA1})
+		attempts = append(attempts, Attempt{Status: r.Status, Size: r.Size, Digest: r.Digest})
 		if expectBody != "" && !strings.Contains(strings.ToLower(r.Body), strings.ToLower(expectBody)) {
 			return LiveResult{Live: false, Attempts: attempts, Note: "复验时特征消失"}
 		}
@@ -128,10 +128,10 @@ func VerifyLive(rawURL string, tries int, timeout time.Duration, expectBody stri
 			return LiveResult{Live: false, Attempts: attempts, Note: "复验状态码不一致"}
 		}
 	}
-	allSHA := attempts[0].SHA1 != ""
+	allSHA := attempts[0].Digest != ""
 	allSize := true
 	for _, a := range attempts[1:] {
-		if a.SHA1 == "" || a.SHA1 != attempts[0].SHA1 {
+		if a.Digest == "" || a.Digest != attempts[0].Digest {
 			allSHA = false
 		}
 		if a.Size != attempts[0].Size {

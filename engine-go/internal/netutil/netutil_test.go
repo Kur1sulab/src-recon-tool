@@ -1,7 +1,7 @@
 package netutil
 
 import (
-	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -31,9 +31,9 @@ func TestFetchBasicFields(t *testing.T) {
 	if r.Size != 11 || r.Body != "hello world" {
 		t.Fatalf("size/body = %d/%q", r.Size, r.Body)
 	}
-	want := fmt.Sprintf("%x", sha1.Sum([]byte("hello world")))[:16]
-	if r.SHA1 != want {
-		t.Fatalf("sha1 = %q, want %q", r.SHA1, want)
+	want := fmt.Sprintf("%x", sha256.Sum256([]byte("hello world")))[:16]
+	if r.Digest != want {
+		t.Fatalf("digest = %q, want %q", r.Digest, want)
 	}
 	if r.Ctype != "text/plain" {
 		t.Fatalf("ctype = %q", r.Ctype)
@@ -91,9 +91,9 @@ func TestFetchTruncateThenHash(t *testing.T) {
 	if r.Size != 10 {
 		t.Fatalf("截断后 size = %d", r.Size)
 	}
-	want := fmt.Sprintf("%x", sha1.Sum([]byte(body[:10])))[:16] // 先截断后哈希
-	if r.SHA1 != want {
-		t.Fatalf("sha1 = %q, want %q（必须对截断后的 raw 计算）", r.SHA1, want)
+	want := fmt.Sprintf("%x", sha256.Sum256([]byte(body[:10])))[:16] // 先截断后哈希
+	if r.Digest != want {
+		t.Fatalf("digest = %q, want %q（必须对截断后的 raw 计算）", r.Digest, want)
 	}
 }
 
@@ -121,8 +121,8 @@ func TestFetchRedirectLoopPythonSemantics(t *testing.T) {
 	if !r.OK || r.Status != 302 {
 		t.Fatalf("重定向超限应返回最后一个 302（ok=true），got %v/%d err=%q", r.OK, r.Status, r.Err)
 	}
-	if r.SHA1 != "da39a3ee5e6b4b0d" {
-		t.Fatalf("空体摘要 = %q", r.SHA1)
+	if r.Digest != "e3b0c44298fc1c14" { // sha256("")[:16]
+		t.Fatalf("空体摘要 = %q", r.Digest)
 	}
 	if !strings.HasSuffix(r.FinalURL, "/next") {
 		t.Fatalf("final_url = %q（应停在最后一次请求的 URL）", r.FinalURL)
@@ -304,17 +304,17 @@ func TestSafeSubdir(t *testing.T) {
 // ── baseline / verify_live ──
 
 func TestSameShape(t *testing.T) {
-	a := Result{Status: 200, SHA1: "abc", Size: 10, Ctype: "text/html"}
-	if !SameShape(a, Result{Status: 200, SHA1: "abc", Size: 99, Ctype: "x"}) {
+	a := Result{Status: 200, Digest: "abc", Size: 10, Ctype: "text/html"}
+	if !SameShape(a, Result{Status: 200, Digest: "abc", Size: 99, Ctype: "x"}) {
 		t.Error("指纹相等应判同形")
 	}
 	if !SameShape(a, Result{Status: 200, Size: 10, Ctype: "text/html"}) {
 		t.Error("长度+类型相等应判同形")
 	}
-	if SameShape(a, Result{Status: 200, SHA1: "zzz", Size: 10, Ctype: "other"}) {
+	if SameShape(a, Result{Status: 200, Digest: "zzz", Size: 10, Ctype: "other"}) {
 		t.Error("类型不同不应判同形")
 	}
-	if SameShape(a, Result{Status: 404, SHA1: "abc", Size: 10, Ctype: "text/html"}) {
+	if SameShape(a, Result{Status: 404, Digest: "abc", Size: 10, Ctype: "text/html"}) {
 		t.Error("状态码不同不应判同形")
 	}
 	if SameShape(Result{Status: 200, Size: 0}, Result{Status: 200, Size: 0}) {
@@ -337,7 +337,7 @@ func TestBaselineKinds(t *testing.T) {
 	if b.Kind != "soft404" || b.Status != 200 || b.Samples != 2 {
 		t.Fatalf("soft404 站基线 = %+v", b)
 	}
-	if IsBaseline(Result{Status: 200, SHA1: b.SHA1, Size: b.Size, Ctype: b.Ctype, URL: srv.URL + "/x", FinalURL: srv.URL + "/x"}, b) != true {
+	if IsBaseline(Result{Status: 200, Digest: b.Digest, Size: b.Size, Ctype: b.Ctype, URL: srv.URL + "/x", FinalURL: srv.URL + "/x"}, b) != true {
 		t.Error("同形 200 响应应判为基线（catch-all）")
 	}
 

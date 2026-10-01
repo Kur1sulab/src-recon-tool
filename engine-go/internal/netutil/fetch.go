@@ -8,11 +8,12 @@
 //   - TLS 策略见 tlsProbeConfig()：被扫目标常见自签/过期证书，
 //     与 Python 版 ssl.CERT_NONE 语义一致（内容探测，不做身份认证/传密）；
 //   - shortDigest 是页面形态指纹（识别 catch-all 假页），与 Python
-//     hashlib.sha1(...).hexdigest()[:16] 一致，非口令/密钥保护用途。
+//     hashlib.sha256(...).hexdigest()[:16] 一致，非口令/密钥保护用途。
 package netutil
 
 import (
 	"crypto/tls"
+	"errors"
 	"io"
 	"net/http"
 	"net/url"
@@ -32,6 +33,13 @@ type FetchOpt struct {
 	Method   string        // 空 = GET；带 Data 且未指定时自动 POST（urllib 语义）
 	Data     []byte
 	Headers  map[string]string
+	// HopCheck（fix1 P1，Go 侧加固）：Follow 模式下每一跳重定向目标在跟随之先
+	// 过本回调，返回 error 即中止跟随、该请求按失败处理。nil = 不做逐跳校验
+	// （默认，与 Python 侧现状一致，parity 不受影响）。入口做过 CheckHTTPURL
+	// 的调用方（fingerprint/PickBase）应传入同策略回调，堵「入口校验不约束
+	// 302 落点」的边界盲区。可观测行为与 Python 保持一致：Python 对解析失败
+	// 的重定向目标同样请求失败（error 字段），跨 scheme 重定向两侧协议栈都拒绝。
+	HopCheck func(nextURL string) error
 }
 
 // Result 与 Python fetch 返回 dict 逐字段对齐（JSON 键名一致）。
@@ -42,7 +50,7 @@ type Result struct {
 	Status   int               `json:"status"`
 	FinalURL string            `json:"final_url"`
 	Size     int               `json:"size"`
-	SHA1     string            `json:"sha1"`
+	Digest   string            `json:"digest"`
 	Ctype    string            `json:"ctype"`
 	Body     string            `json:"body"`
 	Headers  map[string]string `json:"headers"`
@@ -115,14 +123,34 @@ func newClient(opt FetchOpt) *http.Client {
 			return http.ErrUseLastResponse
 		}
 	} else {
-		client.CheckRedirect = func(_ *http.Request, via []*http.Request) error {
+		hopCheck := opt.HopCheck
+		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 10 {
 				return http.ErrUseLastResponse
+			}
+			if hopCheck != nil {
+				// fix1 P1：逐跳复验 30x 落点（req 即待跟随的下一跳请求）。
+				// 返回非 ErrUseLastResponse 的 error 会中止跟随，Do 返回该错误。
+				if err := hopCheck(req.URL.String()); err != nil {
+					return err
+				}
 			}
 			return nil
 		}
 	}
 	return client
+}
+
+// errReason 提取错误原因文本（fix1 审计 low#5）：剥离 *url.Error 的
+// `Get "URL": ` 前缀，对齐 Python str(e) 只含原因不含 URL 的形态——
+// URL query 里携带的 token/api_key 等敏感参数不得经 error 字段进入
+// 日志、stdout 与未来的报告/证据包。
+func errReason(err error) string {
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		return ue.Err.Error()
+	}
+	return err.Error()
 }
 
 // Fetch 单次 HTTP 请求，返回结构化结果（不 panic；失败写 Err 字段）。
@@ -170,7 +198,7 @@ func Fetch(rawURL string, opt FetchOpt) Result {
 	}
 	resp, err := newClient(opt).Do(req)
 	if err != nil {
-		res.Err = trunc(err.Error(), 120)
+		res.Err = trunc(errReason(err), 120)
 		return res
 	}
 	defer resp.Body.Close()
@@ -183,7 +211,7 @@ func Fetch(rawURL string, opt FetchOpt) Result {
 	res.OK = true
 	res.Status = resp.StatusCode
 	res.Size = len(raw)
-	res.SHA1 = shortDigest(raw)
+	res.Digest = shortDigest(raw)
 	res.Ctype = resp.Header.Get("Content-Type")
 	res.Body = decodeUTF8Ignore(raw)
 	res.FinalURL = resp.Request.URL.String()
