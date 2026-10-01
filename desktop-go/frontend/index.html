@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'">
+<title>侦察工作台 · src-recon-tool</title>
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div class="app">
+
+  <!-- ═══ 侧栏 ═══ -->
+  <aside class="sidebar">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" stroke-width="1.6"/>
+        <circle cx="12" cy="12" r="2.4" fill="currentColor"/>
+        <path d="M12 1.5v4M12 18.5v4M1.5 12h4M18.5 12h4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+      </svg>
+      <div class="brand-text">
+        <div class="brand-name">侦察工作台</div>
+        <div class="brand-sub">src-recon-tool</div>
+      </div>
+    </div>
+
+    <nav class="side-nav" aria-label="页面导航">
+      <a class="nav-item" href="#/tasks" data-nav="tasks">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        <span>任务列表</span><kbd>Ctrl+1</kbd>
+      </a>
+      <a class="nav-item" href="#/new" data-nav="new">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="6.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 3v3.5M12 17.5V21M3 12h3.5M17.5 12H21" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        <span>新建侦察</span><kbd>Ctrl+2</kbd>
+      </a>
+      <a class="nav-item" href="#/detail" data-nav="detail">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-7 4 14 3-7h4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>任务详情</span><kbd>Ctrl+3</kbd>
+      </a>
+      <a class="nav-item" href="#/evidence" data-nav="evidence">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 8l-9-5-9 5v8l9 5 9-5V8z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M3 8l9 5 9-5M12 13v8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+        <span>证据包</span><kbd>Ctrl+4</kbd>
+      </a>
+      <a class="nav-item" href="#/settings" data-nav="settings">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M18.7 5.3l-2.1 2.1M7.4 16.6l-2.1 2.1" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        <span>设置</span><kbd>Ctrl+5</kbd>
+      </a>
+    </nav>
+
+    <div class="side-foot">
+      <div class="backend-status" id="backendStatus" role="status">
+        <span class="dot" id="backendDot"></span>
+        <span id="backendText">正在连接本地服务…</span>
+      </div>
+      <div class="side-note">仅限授权目标扫描</div>
+    </div>
+  </aside>
+
+  <!-- ═══ 主区 ═══ -->
+  <div class="main">
+    <header class="topbar">
+      <h1 class="view-title" id="viewTitle">任务列表</h1>
+      <div class="topbar-side">
+        <span class="esc-hint hidden" id="escHint"><kbd>Esc</kbd> 停止运行中任务</span>
+      </div>
+    </header>
+
+    <div class="offline-banner hidden" id="offlineBanner" role="alert">
+      无法连接本地服务（127.0.0.1）。请确认应用已启动，恢复后数据将自动刷新。
+    </div>
+
+    <main class="content" id="content">
+
+      <!-- ① 任务列表 -->
+      <section class="view" id="view-tasks" hidden>
+        <div class="panel">
+          <div class="panel-head">
+            <div class="panel-title">扫描任务</div>
+            <div class="panel-actions">
+              <button class="btn" id="tasksRefresh" type="button">刷新</button>
+              <a class="btn btn-primary" href="#/new">新建侦察</a>
+            </div>
+          </div>
+          <div class="table-wrap" id="tasksTableWrap"></div>
+        </div>
+      </section>
+
+      <!-- ② 新建侦察 -->
+      <section class="view" id="view-new" hidden>
+        <div class="panel">
+          <div class="panel-head">
+            <div class="panel-title">新建侦察任务</div>
+          </div>
+          <form id="newScanForm" novalidate>
+            <div class="form-row">
+              <label for="newTarget">扫描目标</label>
+              <input class="input mono" type="text" id="newTarget" name="target"
+                     placeholder="如 xycovo.com、47.100.49.228、http://127.0.0.1:8799/real" autocomplete="off" spellcheck="false">
+              <div class="field-hint" id="newTargetHint"></div>
+            </div>
+            <div class="form-row">
+              <label for="newCmd">扫描模块</label>
+              <select class="input" id="newCmd" name="cmd">
+                <option value="all">all — 全流程</option>
+                <option value="paths">paths — 敏感路径探测</option>
+                <option value="api">api — API 未授权探测</option>
+                <option value="fingerprint">fingerprint — 指纹识别</option>
+                <option value="jsintel">jsintel — JS 情报提取</option>
+                <option value="portscan">portscan — 端口扫描</option>
+                <option value="subdomain">subdomain — 子域收集</option>
+                <option value="reverse">reverse — IP 反查域名</option>
+                <option value="icp">icp — 备案查询</option>
+              </select>
+              <div class="field-hint" id="newCmdHint"></div>
+            </div>
+            <div class="form-row">
+              <label for="newArgs">可选参数 <span class="opt-mark">（留空使用默认）</span></label>
+              <input class="input mono" type="text" id="newArgs" name="args"
+                     placeholder="如 --ports 1-1000 --timeout 0.5" autocomplete="off" spellcheck="false">
+            </div>
+
+            <div class="whitelist-box">
+              <div class="wl-title">授权目标白名单</div>
+              <ul class="wl-list" id="newWhitelist"><li class="wl-loading">白名单加载中…</li></ul>
+              <div class="wl-note">只允许对以上目标发起扫描；名单之外的任何目标都会被服务端拒绝（403）。</div>
+            </div>
+
+            <div class="form-error hidden" id="newError" role="alert"></div>
+
+            <div class="form-actions">
+              <button class="btn btn-primary" type="submit" id="newSubmit">开始扫描</button>
+              <span class="submit-note">提交后自动跳转到任务详情，可实时查看模块进度。</span>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <!-- ③ 任务详情 -->
+      <section class="view" id="view-detail" hidden>
+        <div id="detailBody">
+          <div class="panel">
+            <div class="panel-head">
+              <div class="panel-title" id="detailHeading">任务详情</div>
+              <div class="panel-actions">
+                <button class="btn" id="detailRefresh" type="button">刷新</button>
+                <button class="btn btn-danger" id="detailStop" type="button" hidden>停止任务</button>
+              </div>
+            </div>
+            <div class="kv-grid" id="detailMeta"></div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head"><div class="panel-title">模块进度</div></div>
+            <div class="table-wrap" id="detailProgressWrap"></div>
+            <div class="pipeline-note" id="detailPipelineNote"></div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head">
+              <div class="panel-title">结果产物</div>
+              <div class="panel-actions"><a class="btn" id="detailEvidenceLink" href="#/evidence">前往证据包</a></div>
+            </div>
+            <div class="table-wrap" id="detailArtifactsWrap"></div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head"><div class="panel-title">原始日志（末尾）</div></div>
+            <pre class="logview" id="detailLog">（暂无日志）</pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- ④ 证据包 -->
+      <section class="view" id="view-evidence" hidden>
+        <div class="panel">
+          <div class="panel-head">
+            <div class="panel-title">证据包导出</div>
+          </div>
+          <div class="form-row">
+            <label for="evTaskSelect">选择任务</label>
+            <select class="input" id="evTaskSelect"></select>
+          </div>
+          <div class="kv-grid" id="evMeta"></div>
+          <div class="table-wrap" id="evArtifactsWrap"></div>
+          <div class="form-error hidden" id="evError" role="alert"></div>
+          <div class="form-actions">
+            <button class="btn btn-primary" id="evExport" type="button">导出证据包（.zip）</button>
+            <span class="submit-note" id="evPathNote"></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ⑤ 设置 -->
+      <section class="view" id="view-settings" hidden>
+        <div class="panel">
+          <div class="panel-head">
+            <div class="panel-title">运行环境</div>
+            <div class="panel-actions"><button class="btn btn-primary" id="envCheck" type="button">运行自检</button></div>
+          </div>
+          <div class="kv-grid" id="envGrid"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><div class="panel-title">授权目标白名单（只读）</div></div>
+          <div class="table-wrap" id="envWhitelistWrap"></div>
+          <div class="panel-foot">白名单内置于服务端，无法在本页面修改。名单之外的任何扫描目标都会被拒绝（403）。</div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+</div>
+
+<div class="toast hidden" id="toast" aria-live="polite"></div>
+
+<script src="js/api.js"></script>
+<script src="js/app.js"></script>
+<script src="js/views/tasks.js"></script>
+<script src="js/views/new.js"></script>
+<script src="js/views/detail.js"></script>
+<script src="js/views/evidence.js"></script>
+<script src="js/views/settings.js"></script>
+</body>
+</html>

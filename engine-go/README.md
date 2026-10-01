@@ -38,7 +38,7 @@ C:/Go/go/bin/go.exe test ./...                              # 全部单测 + Pyt
 | `jsintel -u` | `modules.jsintel` | ⏳ c2 前拍板是否纳入（该模块只在本地未推提交里） |
 | `portscan -t` | `modules.portscan` | ⏳ 同上 |
 | `poc -t -p` | `modules.poc_engine`（YAML 引擎） | ⏳ c2 轮（已注册，届时引入 yaml.v3） |
-| `llm -d` | `modules.llm_assist` | ❌ **不移植，弃用**（可选增强，跑 `llm` 会提示并 exit 2） |
+| `llm -d` | ~~`modules.llm_assist`~~ | ❌ **不移植，弃用**（Python 版也已整体移除该模块，两侧行为一致：提示并 exit 2） |
 | `report -t` | `modules.report` | ⏳ c3 轮（已注册） |
 
 未实现命令打印「第 N 轮实现」并 exit 2；无参数打印 help 并 exit 1——**绝不静默
@@ -115,4 +115,4 @@ curl -L -o tools/bin/subfinder.zip \
 
 `llm` 子命令（`modules.llm_assist`，LLM 辅助解读）在 Go 版**不移植**：属可选
 增强、依赖外部 LLM 接口，与"纯 Go 单文件、零外网依赖"的引擎定位冲突。执行
-`recon-go llm` 会打印弃用提示并 exit 2。需要该功能请继续使用 Python 版。
+`recon-go llm` 会打印弃用提示并 exit 2。Python 版已同步移除该模块（`modules/llm_assist.py` 已删除，`recon.py llm` 同样提示并 exit 2）——该功能需要向第三方服务发送扫描数据，与数据不出本机的红线冲突，两侧都不再提供。

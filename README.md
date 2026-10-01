@@ -22,7 +22,7 @@ SRC 漏洞挖掘信息收集自动化工具（Python）。将子域枚举、资�
 | **portscan** | **端口扫描**（纯标准库 TCP connect，零三方依赖：内置 ~100 常用端口表，`--ports 80,443,8000-8100` 混合写法自定义；并发 ≤32 / 连接超时 1.5s 可调；开放端口做 1s 轻量旗帜抓取并识别服务名（SSH/Redis/MySQL/…）。**仅限授权目标**） |
 | poc | YAML 化 POC 模板引擎（nuclei 风格子集，status/contains matcher，and/or 条件） |
 | **report** | **资产档案 + 证据包**（把所有模块产出聚合成 `report.md`：归属线索/子域存活/指纹/敏感路径/API 暴露 + 待人工跟进；并把 `evidence/` 打成 zip 随提交稿交付；`all` 自动生成） |
-| llm | LLM 辅助资产分级与攻击面总结（可选，无 key 自动降级） |
+| ~~llm~~ | **已弃用**：需向第三方服务发送扫描数据，为守住数据不出本机的红线整体移除（Python 与 Go 引擎同步） |
 
 ## 架构
 
@@ -31,7 +31,6 @@ target → recon.py → subdomain / asset / fingerprint / paths / jsintel / port
                                               ↓
                                        poc_engine（YAML 模板）
                                               ↓
-                                       llm_assist（总结报告）
 ```
 
 ## 安装
@@ -60,7 +59,6 @@ python src/recon.py portscan -t 127.0.0.1 --ports 80,443,8000-8100 --timeout 1  
 python src/recon.py fingerprint -u https://example.com
 python src/recon.py paths -u https://example.com
 python src/recon.py poc -t https://example.com -p pocs/example-http-detect.yaml
-python src/recon.py llm -d example.com        # 仅 LLM 总结
 python src/recon.py report -t example.com     # 按已有产出重新生成资产档案 + 证据包
 ```
 
@@ -92,11 +90,13 @@ requests:
         status: [200, 401, 403]
 ```
 
-## LLM 辅助（可选）
+## llm 模块弃用声明
 
-设置 `LLM_API_KEY`（OpenAI 兼容接口，`LLM_BASE_URL`/`LLM_MODEL` 可配）后，
-自动对收集结果做资产分级与攻击面提示，输出 `out/<target>/llm_summary.md`；
-未配置 key 时流水线自动跳过，不影响主流程。
+`llm` 模块（LLM 辅助解读）已**整体移除**：它会把子域/资产/指纹/敏感路径打包
+POST 到第三方 LLM 服务（如 `LLM_BASE_URL` 指向的外部 API），与「扫描数据不出
+本机」的形态红线冲突。Python 版 `recon.py all` 不再调用该步骤，`recon.py llm`
+打印弃用提示并以退出码 2 结束（与 Go 版 `recon-go llm` 行为一致）；
+`modules/llm_assist.py` 已删除。
 
 ## 效果
 

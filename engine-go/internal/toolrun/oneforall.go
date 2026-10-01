@@ -11,8 +11,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	subproc "os/exec"
 	"os"
+	subproc "os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -50,8 +50,14 @@ func RunOneForAll(home, domain, out string, timeout time.Duration) []string {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
+	// 解释器解析与桌面壳一致：RECON_PYTHON 优先，缺省 python——
+	// 不再硬编码，避免与壳侧解析顺序不一致
+	py := strings.TrimSpace(os.Getenv("RECON_PYTHON"))
+	if py == "" {
+		py = "python"
+	}
 	// 参数列表调用（无 shell）：与 Python subprocess.run([...], check=False, timeout=1800) 一致
-	cmd := subproc.CommandContext(ctx, "python", exe, "--target", domain, "--fmt", "json", "--path", out)
+	cmd := subproc.CommandContext(ctx, py, exe, "--target", domain, "--fmt", "json", "--path", out)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {

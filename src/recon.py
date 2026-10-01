@@ -14,7 +14,6 @@
   python src/recon.py fingerprint -u https://example.com
   python src/recon.py paths -u https://example.com
   python src/recon.py poc -t https://example.com -p pocs/example.yaml
-  python src/recon.py llm -d example.com
 
 仅限授权范围内的安全测试使用。
 """
@@ -71,7 +70,22 @@ def is_ip(s: str) -> bool:
 
 
 def make_outdir(target: str) -> str:
-    out = os.path.join("out", target.replace("://", "_").replace("/", "_").replace(":", "_"))
+    """out/<target 清洗>——与 Go 引擎 MakeOutdir（engine-go/internal/cli/cli.go）
+    逐字符同规则（fix1 P1 双引擎同步加固）：
+      1) :// / / \ : ? & = " < > | * 全部换 _——反斜杠是 Windows 路径分隔符，
+         不换则 ..\..\ 直接在 out/ 之外建目录；? & = 等 Windows 非法字符原样
+         进目录名会让 makedirs 报 WinError 123，Linux 侧则会把含潜在 api_key 的
+         完整 query 持久化进文件系统路径；
+      2) 去首尾点号与空格；清洗后为空或 ".."（纯穿越锚）回 "unknown"。
+    """
+    name = (target.replace("://", "_").replace("/", "_").replace("\\", "_")
+            .replace(":", "_").replace("?", "_").replace("&", "_").replace("=", "_")
+            .replace('"', "_").replace("<", "_").replace(">", "_").replace("|", "_")
+            .replace("*", "_"))
+    name = name.strip(". ")
+    if name in ("", ".."):
+        name = "unknown"
+    out = os.path.join("out", name)
     os.makedirs(out, exist_ok=True)
     return out
 
@@ -103,7 +117,6 @@ def cmd_all(args):
     out = make_outdir(target)
     from modules.fingerprint import run_fingerprint
     from modules.api_unauth import run_api
-    from modules.llm_assist import run_llm
 
     if is_ip(target):
         # ── IP 分支：反查域名 → 逐个 ICP → 指纹 → API 探测 ──
@@ -132,7 +145,7 @@ def cmd_all(args):
         _run_step("portscan", lambda: run_portscan(target, out), fatal=False)
         _run_step("jsintel", lambda: run_jsintel(base, out), fatal=False)
     else:
-        # ── 域名分支：子域 → 存活验证 → 资产 → ICP → 指纹 → 路径 → API → LLM ──
+        # ── 域名分支：子域 → 存活验证 → 资产 → ICP → 指纹 → 路径 → API ──
         from modules.subdomain import run_subdomain, run_verify
         from modules.asset import run_asset
         from modules.icp import run_icp
@@ -150,7 +163,8 @@ def cmd_all(args):
         from modules.portscan import run_portscan
         _run_step("jsintel", lambda: run_jsintel(base, out), fatal=False)
         _run_step("portscan", lambda: run_portscan(target, out), fatal=False)
-    _run_step("llm", lambda: run_llm(out))
+    # llm 步骤已整体移除（与 Go 引擎同步弃用）：不再把子域/资产/指纹/敏感路径
+    # 打包发往任何第三方 LLM 服务，扫描数据不出本机。
     from modules.report import run_report
     _run_step("report", lambda: run_report(out, target))  # 聚合资产档案 + 证据包
     print(f"[+] 全流程完成，输出目录: {out}")
@@ -236,8 +250,9 @@ def main():
             from modules.poc_engine import run_poc
             run_poc(args.target, args.poc)
         elif args.cmd == "llm":
-            from modules.llm_assist import run_llm
-            run_llm(make_outdir(args.domain))
+            # 已弃用（与 Go 引擎 cli 同步）：LLM 辅助需向第三方服务发送资产数据，不再提供
+            print("[*] llm 模块已弃用：为避免扫描数据外发第三方，该功能已移除（详见 README）")
+            sys.exit(2)
         elif args.cmd == "report":
             from modules.report import run_report
             run_report(make_outdir(args.target), args.target)
