@@ -77,7 +77,8 @@
 | baseline 探针串 | 进程级随机（token_hex(5) vs crypto/rand） | final_url 只比"探针 1 路径"后缀，redirect 场景全等 |
 | 数字类型 | JSON→float64 vs Go int 字面量 | 渲染层 numOf 通用提取（c2 parity 抓出后修） |
 | 子进程超时 | Python TimeoutExpired 炸穿 vs Go 告警返空走降级链 | README 差异说明（行为等价：该通道无结果） |
-| 私网全集 | Go 标准库缺 Python 3.8 的 14 段私网/保留段（含 198.18.0.0/15 fake-ip 段） | 自实现全集 + 动态 python 探针单测逐 IP 钉死 |
+| 私网全集 | Go 标准库缺 Python 的私网/保留段（含 198.18.0.0/15 fake-ip 段） | 自实现全集 + 动态 python 探针单测逐 IP 钉死 |
+| 私网表的 Python 版本口径 | ipaddress 私网表随 CPython 版本漂移：3.8 与 3.13 差异段 = IPv4 192.0.0.0/29(+170/31)→/24、IPv6 新增 64:ff9b:1::/48、2002::/16、3fff::/20。**Go 表统一按 3.13 口径**（与 CI runner 一致）；本机 3.8 引擎在上述 4 个极端段上更宽松（不影响 fake-ip/RFC1918/回环等核心场景） | 探针测试版本感知：python <3.9 跳过版本差异段对照（netutil:TestIPBlockedMatchesPython） |
 
 ## ⑤ 真实目标对照（xycovo.com，白名单内自有资产，人工验收 2026-10-02 20:14-20:20）
 

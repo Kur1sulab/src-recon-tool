@@ -173,9 +173,21 @@ func TestCheckHTTPURLRules(t *testing.T) {
 	}
 }
 
-// TestIPBlockedMatchesPython 动态 python 探针：逐 IP 对照 Python 3.8 ipaddress
+// TestIPBlockedMatchesPython 动态 python 探针：逐 IP 对照本机 python ipaddress
 // 的 is_private/is_loopback/is_link_local/is_reserved 联合判定，钉死全集语义。
+// 版本口径：Go 表按 CPython 3.13 实现（CI runner/未来运行时）；3.8 在
+// 192.0.0.8-192.0.0.255 / 2002::/16 / 64:ff9b:1::/48 / 3fff::/20 上更宽松——
+// 探针对版本差异段按 python 版本跳过（<3.9 跳过），口径记录于 docs/PARITY.md ④。
 func TestIPBlockedMatchesPython(t *testing.T) {
+	pyVer := strings.TrimSpace(parity.RunPy(t, `import sys; print("%d.%d" % sys.version_info[:2])`))
+	major, minor := 3, 8
+	if _, err := fmt.Sscanf(pyVer, "%d.%d", &major, &minor); err != nil {
+		t.Logf("python 版本解析失败（%q），按 3.8 口径处理", pyVer)
+	}
+	versionDiffSegments := map[string]bool{
+		"192.0.0.8": true, // 3.8: 192.0.0.0/29 不含 → False；3.13: /24 → True
+		"2002::1":   true, // 3.8: 不在私网/保留 → False；3.13: 2002::/16 → True
+	}
 	ips := []string{
 		"0.0.0.0", "10.0.0.1", "127.0.0.1", "169.254.1.1", "172.16.5.5",
 		"192.0.0.1", "192.0.0.8", "192.0.0.170", "192.0.2.1", "192.168.1.1",
@@ -202,7 +214,13 @@ print(json.dumps(out))
 	if err := jsonUnmarshalInto(out, &py); err != nil {
 		t.Fatalf("python 探针输出解析失败: %v\n%s", err, out)
 	}
+	// 版本口径（见函数注释）：python <3.9 跳过版本差异段对照
+	skipDiff := minor < 9
 	for _, s := range ips {
+		if skipDiff && versionDiffSegments[s] {
+			t.Logf("跳过版本差异段 %s（python %s 口径与 Go 3.13 口径不同，见 PARITY.md ④）", s, pyVer)
+			continue
+		}
 		a, err := netip.ParseAddr(s)
 		if err != nil {
 			t.Fatalf("Go 解析 %s 失败: %v", s, err)
@@ -216,6 +234,10 @@ print(json.dumps(out))
 			t.Errorf("ip %s: Go blocked=%v, Python=%v —— 私网全集表与 Python 分叉", s, got, want)
 		}
 	}
+}
+
+func fmtSscanf(s, format string, args ...any) (int, error) {
+	return fmt.Sscanf(s, format, args...)
 }
 
 func jsonUnmarshalInto(s string, v any) error {
