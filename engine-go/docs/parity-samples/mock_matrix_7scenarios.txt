@@ -1,0 +1,35 @@
+[soft404]
+  py-api:    [*] 探测完成：未发现暴露的 API 文档/运维端点（catch-all 过滤掉 0 条疑似）
+  go-api:    [*] 探测完成：未发现暴露的 API 文档/运维端点（catch-all 过滤掉 0 条疑似）
+  py-paths:  [+] 敏感路径探测完成（存活 0 个，另有 19 条被拒绝/跳转/基线过滤）-> C:\Users\18270\src-recon-tool\out\http_127.0.0.1_8799_soft404\paths.json
+  go-paths:  [+] 敏感路径探测完成（存活 0 个，另有 19 条被拒绝/跳转/基线过滤）-> C:\Users\18270\src-recon-tool\out\http_127.0.0.1_8799_soft404\paths.json
+[waf]
+  py-api:    [*] 探测完成：未发现暴露的 API 文档/运维端点（catch-all 过滤掉 0 条疑似）
+  go-api:    [*] 探测完成：未发现暴露的 API 文档/运维端点（catch-all 过滤掉 0 条疑似）
+  py-paths:  [+] 敏感路径探测完成（存活 0 个，另有 19 条被拒绝/跳转/基线过滤）-> C:\Users\18270\src-recon-tool\out\http_127.0.0.1_8799_waf\paths.json
+  go-paths:  [+] 敏感路径探测完成（存活 0 个，另有 19 条被拒绝/跳转/基线过滤）-> C:\Users\18270\src-recon-tool\out\http_127.0.0.1_8799_waf\paths.json
+[loginredirect]
+  py-api:    [*] 探测完成：未发现暴露的 API 文档/运维端点（catch-all 过滤掉 0 条疑似）
+  go-api:    [*] 探测完成：未发现暴露的 API 文档/运维端点（catch-all 过滤掉 0 条疑似）
+  py-paths:  [+] 敏感路径探测完成（存活 0 个，另有 19 条被拒绝/跳转/基线过滤）-> C:\Users\18270\src-recon-tool\out\http_127.0.0.1_8799_loginredirect\paths.json
+  go-paths:  [+] 敏感路径探测完成（存活 0 个，另有 19 条被拒绝/跳转/基线过滤）-> C:\Users\18270\src-recon-tool\out\http_127.0.0.1_8799_loginredirect\paths.json
+[empty]
+  py-api:    [*] 探测完成：未发现暴露的 API 文档/运维端点（catch-all 过滤掉 0 条疑似）
+  go-api:    [*] 探测完成：未发现暴露的 API 文档/运维端点（catch-all 过滤掉 0 条疑似）
+  py-paths:  [+] 敏感路径探测完成（存活 0 个，另有 0 条被拒绝/跳转/基线过滤）-> C:\Users\18270\src-recon-tool\out\http_127.0.0.1_8799_empty\paths.json
+  go-paths:  [+] 敏感路径探测完成（存活 0 个，另有 0 条被拒绝/跳转/基线过滤）-> C:\Users\18270\src-recon-tool\out\http_127.0.0.1_8799_empty\paths.json
+[api404]
+  py-api:    [*] 探测完成：未发现暴露的 API 文档/运维端点（catch-all 过滤掉 1 条疑似）
+  go-api:    [*] 探测完成：未发现暴露的 API 文档/运维端点（catch-all 过滤掉 1 条疑似）
+  py-paths:  [+] 敏感路径探测完成（存活 0 个，另有 19 条被拒绝/跳转/基线过滤）-> C:\Users\18270\src-recon-tool\out\http_127.0.0.1_8799_api404\paths.json
+  go-paths:  [+] 敏感路径探测完成（存活 0 个，另有 19 条被拒绝/跳转/基线过滤）-> C:\Users\18270\src-recon-tool\out\http_127.0.0.1_8799_api404\paths.json
+[real]
+  py-api:    [+] 探测完成：5 个疑似命中，其中**存活复验通过 5 个**（catch-all 过滤掉 0 条）
+  go-api:    [+] 探测完成：5 个疑似命中，其中**存活复验通过 5 个**（catch-all 过滤掉 0 条）
+  py-paths:  [+] 敏感路径探测完成（存活 5 个，另有 0 条被拒绝/跳转/基线过滤）-> C:\Users\18270\src-recon-tool\out\http_127.0.0.1_8799_real\paths.json
+  go-paths:  [+] 敏感路径探测完成（存活 5 个，另有 0 条被拒绝/跳转/基线过滤）-> C:\Users\18270\src-recon-tool\out\http_127.0.0.1_8799_real\paths.json
+[fppage]
+  py-api:    [*] 探测完成：未发现暴露的 API 文档/运维端点（catch-all 过滤掉 0 条疑似）
+  go-api:    [*] 探测完成：未发现暴露的 API 文档/运维端点（catch-all 过滤掉 0 条疑似）
+  py-paths:  [+] 敏感路径探测完成（存活 0 个，另有 0 条被拒绝/跳转/基线过滤）-> C:\Users\18270\src-recon-tool\out\http_127.0.0.1_8799_fppage\paths.json
+  go-paths:  [+] 敏感路径探测完成（存活 0 个，另有 0 条被拒绝/跳转/基线过滤）-> C:\Users\18270\src-recon-tool\out\http_127.0.0.1_8799_fppage\paths.json
