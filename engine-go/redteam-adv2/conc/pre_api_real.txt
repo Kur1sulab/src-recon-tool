@@ -1,0 +1,20 @@
+[*] API 文档/未授权探测: http://127.0.0.1:18081/real（27 个候选端点）
+[*] 站点基线: normal（随机路径 → 404, 29B, -）
+[!] 中危  命中 Swagger UI                         /swagger-ui.html  (body 含 swagger-ui) → 存活✓
+[!] 中危  命中 OpenAPI 3 文档                       /v3/api-docs  (body 含 "openapi", "paths") → 存活✓
+[!] 中危  命中 Spring Boot Actuator               /actuator  (body 含 "_links", "href") → 存活✓
+[!] 高危  命中 Actuator env（含配置/口令）               /actuator/env  (body 含 "propertysources") → 存活✓
+[!] 高危  命中 Heapdump（可提取凭据）                    /actuator/heapdump  (body 含 java profile) → 存活✓
+[*] 取证模式：为 5 个存活命中落盘存证
+      存证 /actuator/env -> C:\Users\18270\src-recon-tool\engine-go\redteam-adv2\out\http_127.0.0.1_18081_real\evidence\127.0.0.1_18081\actuator_env
+      存证 /actuator/heapdump -> C:\Users\18270\src-recon-tool\engine-go\redteam-adv2\out\http_127.0.0.1_18081_real\evidence\127.0.0.1_18081\actuator_heapdump
+      存证 /swagger-ui.html -> C:\Users\18270\src-recon-tool\engine-go\redteam-adv2\out\http_127.0.0.1_18081_real\evidence\127.0.0.1_18081\swagger_ui_html
+      存证 /v3/api-docs -> C:\Users\18270\src-recon-tool\engine-go\redteam-adv2\out\http_127.0.0.1_18081_real\evidence\127.0.0.1_18081\v3_api_docs
+      存证 /actuator -> C:\Users\18270\src-recon-tool\engine-go\redteam-adv2\out\http_127.0.0.1_18081_real\evidence\127.0.0.1_18081\actuator
+[+] 探测完成：5 个疑似命中，其中**存活复验通过 5 个**（catch-all 过滤掉 0 条）
+      [存活][高] Actuator env（含配置/口令）  /actuator/env
+      [存活][高] Heapdump（可提取凭据）  /actuator/heapdump
+      [存活][中] Swagger UI  /swagger-ui.html
+      [存活][中] OpenAPI 3 文档  /v3/api-docs
+      [存活][中] Spring Boot Actuator  /actuator
+    -> C:\Users\18270\src-recon-tool\engine-go\redteam-adv2\out\http_127.0.0.1_18081_real\api_unauth.json

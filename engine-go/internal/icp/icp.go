@@ -1,11 +1,12 @@
 // Package icp：ICP 备案查询，移植 src/modules/icp.py。
-// 数据源 apihz（cn.apihz.cn）；demo id/key=88888888 为官方公开示例，
-// 生产用环境变量 APIHZ_ID/APIHZ_KEY 覆盖。
+// 数据源 apihz（cn.apihz.cn）；凭据只走环境变量 APIHZ_ID/APIHZ_KEY，
+// 源码不写任何可用凭据字面量，未配置即跳过（与 asset 模块行为对齐）。
 package icp
 
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -69,17 +70,35 @@ func str(v any) string {
 	return fmt.Sprintf("%v", v)
 }
 
+// buildAPIHZQuery 构造 apihz 查询参数：url.Values 编码，domain 含 &/# 等
+// 特殊字符时不会注入或覆盖其他参数（此前 fmt.Sprintf 直拼已废弃）。
+func buildAPIHZQuery(cid, key, domain string) url.Values {
+	pv := url.Values{}
+	pv.Set("id", cid)
+	pv.Set("key", key)
+	pv.Set("domain", domain)
+	return pv
+}
+
 // QueryICP 查询备案，重试 3 次退避，对齐 icp.py:44-57；全败返回 {"filed":false,"msg":...}。
 func QueryICP(domain string, tries int) map[string]any {
+	cid := os.Getenv("APIHZ_ID")
+	key := os.Getenv("APIHZ_KEY")
+	if cid == "" || key == "" {
+		// 凭据纪律：未配置即跳过，不请求、不降级到任何源码字面量
+		return map[string]any{"filed": false,
+			"msg": "未配置 APIHZ_ID/APIHZ_KEY，跳过 ICP 查询（设置环境变量后重试）"}
+	}
 	if tries <= 0 {
 		tries = 3
 	}
-	cid := getenvDefault("APIHZ_ID", "88888888")
-	key := getenvDefault("APIHZ_KEY", "88888888")
-	u := fmt.Sprintf("%s?id=%s&key=%s&domain=%s", APIHZURL, cid, key, domain)
+	u := APIHZURL + "?" + buildAPIHZQuery(cid, key, domain).Encode()
 	last := ""
 	for i := 1; i <= tries; i++ {
-		r := netutil.Fetch(u, netutil.FetchOpt{Timeout: 20 * time.Second, Follow: true})
+		// fix2 P1：id/key 拼在 query 里是 apihz 接口契约，任何 302 跟随都会把
+		// 凭据原样转发给跳板——apihz JSON 接口不需要重定向，Follow:false 在
+		// 协议层杜绝凭据外送（3xx 停留本机，ok=true/status=302 走失败重试）。
+		r := netutil.Fetch(u, netutil.FetchOpt{Timeout: 20 * time.Second, Follow: false})
 		if r.OK && r.Status == 200 && r.Body != "" {
 			return ParseICP(r.Body)
 		}
@@ -117,13 +136,6 @@ func RunICP(domain, out string) map[string]any {
 	}
 	fmt.Printf("    -> %s\n", path)
 	return res
-}
-
-func getenvDefault(k, def string) string {
-	if v := os.Getenv(k); v != "" {
-		return v
-	}
-	return def
 }
 
 // dash 等价 Python `v or '-'`（None/空 → "-"）。

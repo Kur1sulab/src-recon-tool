@@ -1,0 +1,2 @@
+[+] 资产档案已生成 -> C:\Users\18270\src-recon-tool\engine-go\redteam-adv2\out\unknown\report.md
+[*] 本次没有落盘证据（无存活命中），跳过证据包

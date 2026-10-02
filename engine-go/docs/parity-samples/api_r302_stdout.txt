@@ -1,0 +1,71 @@
+[*] API 文档/未授权探测: http://127.0.0.1:18081/r302（27 个候选端点）
+[*] 站点基线: soft404（随机路径 → 200, 355B, text/html; charset=utf-8）
+[!] 该站存在 catch-all（soft404），已启用形态比对过滤——假阳性会被剔除
+[!] 中危  命中 Swagger UI                         /swagger-ui.html  (body 含 swagger-ui) → 存活✓
+[!] 中危  命中 Swagger UI                         /swagger-ui/index.html  (body 含 swagger-ui) → 存活✓
+[!] 中危  命中 Swagger 资源列表                       /swagger-resources  (body 含 swagger) → 存活✓
+[!] 中危  命中 Swagger API-Docs (v2)              /v2/api-docs  (body 含 "swagger", "paths") → 存活✓
+[!] 中危  命中 OpenAPI 3 文档                       /v3/api-docs  (body 含 "openapi", "paths") → 存活✓
+[!] 中危  命中 API 文档                             /api-docs  (body 含 "swagger", "openapi") → 存活✓
+[!] 低危  命中 ReDoc 文档                           /redoc  (body 含 redoc) → 存活✓
+[!] 中危  命中 Spring Boot Actuator               /actuator  (body 含 "_links", "href") → 存活✓
+[!] 高危  命中 Actuator env（含配置/口令）               /actuator/env  (body 含 "propertysources") → 存活✓
+[!] 低危  命中 Actuator health                    /actuator/health  (body 含 "status") → 存活✓
+[!] 中危  命中 Actuator mappings（全路由）             /actuator/mappings  (body 含 "mappings") → 存活✓
+[!] 中危  命中 Actuator beans                     /actuator/beans  (body 含 "beans") → 存活✓
+[!] 高危  命中 Heapdump（可提取凭据）                    /actuator/heapdump  (body 含 java profile) → 存活✓
+[!] 中危  命中 Druid 监控台                          /druid/index.html  (body 含 druid) → 存活✓
+[!] 高危  命中 Druid 会话（含登录态）                     /druid/websession.json  (body 含 "result") → 存活✓
+[!] 中危  命中 Druid SQL 监控                       /druid/sql.json  (body 含 "result") → 存活✓
+[!] 中危  命中 GraphQL 端点                         /graphql  (body 含 "errors", "data") → 存活✓
+[!] 中危  命中 GraphiQL 交互台                       /graphiql  (body 含 graphiql) → 存活✓
+[!] 中危  命中 Eureka 注册中心                        /eureka/apps  (body 含 <applications) → 存活✓
+[!] 中危  命中 Nacos 控制台                          /nacos/  (body 含 nacos) → 存活✓
+[!] 高危  命中 Nacos 用户接口（CVE-2021-29441）         /nacos/v1/auth/users  (body 含 username, "pageitems") → 存活✓
+[!] 中危  命中 Consul 成员列表                        /v1/agent/members  (body 含 "member") → 存活✓
+[!] 中危  命中 H2 数据库控制台                          /h2-console  (body 含 h2-console) → 存活✓
+[!] 中危  命中 Go pprof 调试面                       /debug/pprof/  (body 含 pprof) → 存活✓
+[!] 低危  命中 Prometheus 指标                      /metrics  (body 含 # help) → 存活✓
+[*] 取证模式：为 25 个存活命中落盘存证
+      存证 /actuator/env -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\actuator_env
+      存证 /actuator/heapdump -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\actuator_heapdump
+      存证 /druid/websession.json -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\druid_websession_json
+      存证 /nacos/v1/auth/users -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\nacos_v1_auth_users
+      存证 /swagger-ui.html -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\swagger_ui_html
+      存证 /swagger-ui/index.html -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\swagger_ui_index_html
+      存证 /swagger-resources -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\swagger_resources
+      存证 /v2/api-docs -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\v2_api_docs
+      存证 /v3/api-docs -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\v3_api_docs
+      存证 /api-docs -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\api_docs
+      存证 /actuator -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\actuator
+      存证 /actuator/mappings -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\actuator_mappings
+      存证 /actuator/beans -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\actuator_beans
+      存证 /druid/index.html -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\druid_index_html
+      存证 /druid/sql.json -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\druid_sql_json
+      存证 /graphql -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\graphql
+      存证 /graphiql -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\graphiql
+      存证 /eureka/apps -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\eureka_apps
+      存证 /nacos/ -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\nacos
+      存证 /v1/agent/members -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\v1_agent_members
+      存证 /h2-console -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\h2_console
+      存证 /debug/pprof/ -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\debug_pprof
+      存证 /redoc -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\redoc
+      存证 /actuator/health -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\actuator_health
+      存证 /metrics -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\metrics
+[+] 探测完成：25 个疑似命中，其中**存活复验通过 25 个**（catch-all 过滤掉 1 条）
+      [存活][高] Actuator env（含配置/口令）  /actuator/env
+      [存活][高] Heapdump（可提取凭据）  /actuator/heapdump
+      [存活][高] Druid 会话（含登录态）  /druid/websession.json
+      [存活][高] Nacos 用户接口（CVE-2021-29441）  /nacos/v1/auth/users
+      [存活][中] Swagger UI  /swagger-ui.html
+      [存活][中] Swagger UI  /swagger-ui/index.html
+      [存活][中] Swagger 资源列表  /swagger-resources
+      [存活][中] Swagger API-Docs (v2)  /v2/api-docs
+      [存活][中] OpenAPI 3 文档  /v3/api-docs
+      [存活][中] API 文档  /api-docs
+      [存活][中] Spring Boot Actuator  /actuator
+      [存活][中] Actuator mappings（全路由）  /actuator/mappings
+      [存活][中] Actuator beans  /actuator/beans
+      [存活][中] Druid 监控台  /druid/index.html
+      [存活][中] Druid SQL 监控  /druid/sql.json
+    -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\api_unauth.json

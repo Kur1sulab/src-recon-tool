@@ -123,12 +123,28 @@ engine-go/
 3. **subfinder 通道是 Go 侧增强**（Python 版没有）：插在 OneForAll 之后做并集
    补充，存在才用、失败只告警、不改变 Python 原降级链的触发条件。
 4. **行尾**：Go 写 LF，Python 在 Windows 写 CRLF；消费方一律按行解析，无影响。
-5. **重定向逐跳校验（fix1 起，Go 侧先行）**：Go 的 fingerprint/pick_base 在
-   Follow 模式对每个 30x 落点复跑 CheckHTTPURL（同入口策略）；Python urllib
-   无逐跳复验（TOCTOU 级已接受风险，见 netutil.py docstring）。当前全部调用
-   点 allowPrivate=true，两引擎对一切可解析落点的可观测行为一致；仅当未来
-   出现 allow_private=false 的调用方 + 可控重定向时，Go 拒绝、Python 跟随——
-   届时须同步给 Python fetch 加同构钩子。
+5. **重定向逐跳校验（fix1 起 Go 先行，fix2 全量接线）**：Go 全部 Follow 调用点
+  （fingerprint/pick_base/api/paths/poc/子域探活/取证复请求）经
+  `netutil.HopPolicy(入口)` 逐跳校验——策略由入口推导：**公网入口的 30x 落点
+  拒绝内网/环回/保留/链路本地地址**（堵 302 打进未授权内网段/云元数据），
+  **入口本身私网（授权内网靶标）则放行私网落点**；icp 数据源改 `Follow:false`
+  （id/key 在 query 是 apihz 接口契约，任何跟随都会把凭据转发给跳板）。
+  Python 侧维持 urllib 现状（无逐跳复验，TOCTOU 级已接受风险，见 netutil.py
+  docstring）；两引擎在 parity 矩阵覆盖的 127.0.0.1 靶站上可观测行为一致，
+  公网目标 + 可控 302 场景下 Go 拒绝/Python 跟随，属 Go 侧单向加固。
+6. **follow=False 语义相反（潜伏，零生产调用）**：Python `fetch(follow=False)`
+  实际仍跟随（build_opener(HTTPHandler) 不会移除默认 HTTPRedirectHandler）；
+  Go `Follow:false` 用 ErrUseLastResponse 真停 3xx。两侧生产代码当前无人传
+  no-follow；icp 是首个 no-follow 调用点（Go 侧），Python icp 已同步
+  `follow=False`——但 Python 该参数不生效，实际仍跟随，apihz 若 302 两引擎
+  落点不同（Go 停 3xx 不外发凭据，Python 跟随）。依赖此差异的场景须先修
+  Python HTTPRedirectHandler。
+7. **icp 凭据门禁（fix2）**：未配置 APIHZ_ID/APIHZ_KEY 时两引擎都跳过查询
+  （0 请求，不再回落官方公开 demo 字面量）；domain 双侧经 URL 编码防参数注入。
+8. **CLI 输入校验（fix2，Go 侧 fail-closed）**：`reverse -i` 严格 IP、
+  `icp -d` 域名形状白名单在 CLI 入口拒绝（exit 2）；Python 侧维持原行为
+  （畸形参数照单拼入数据源 URL，由接口端报错）。重复旗标（-d/--domain 等）
+  两引擎均已 last-wins（fix2 对齐 argparse 语义）。
 
 ## subfinder 可选通道
 

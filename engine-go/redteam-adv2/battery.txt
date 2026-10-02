@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# 对抗测试①：恶意输入全弹幕（零外网：HTTP(S)_PROXY=黑洞，NO_PROXY 仅放行本机靶站）
+# 用法: bash battery.txt <engine.exe 绝对路径>
+set -u
+EXE="${1:?usage: battery.txt <engine.exe>}"
+export HTTP_PROXY=http://127.0.0.1:9 HTTPS_PROXY=http://127.0.0.1:9
+export NO_PROXY=127.0.0.1,localhost,192.168.88.1
+export APIHZ_ID=REDTEAMID777 APIHZ_KEY=REDTEAMKEY888
+export PYTHONUTF8=1
+cd "$(dirname "$0")"
+rm -f battery_results.txt
+LONG=$(python -c "print('A'*5000)")
+
+run() { # run <编号> <描述> -- <args...>
+  local id="$1" desc="$2"; shift 3 # 吃掉 "--"
+  local out; out="bat_${id}.txt"
+  "$EXE" "$@" >"$out" 2>&1
+  local code=$?
+  local first; first=$(head -c 300 "$out" | tr '\n' ' ' | tr -d '\r')
+  echo "[$id] exit=$code | $desc | first: $first" >> battery_results.txt
+}
+
+# T1 非法 scheme（ftp）
+run T1 "api -u ftp://example.com/x"        -- api -u "ftp://example.com/x"
+# T2 非法 scheme（file:// 读本地文件尝试）
+run T2 "api -u file:///C:/Windows/win.ini" -- api -u "file:///C:/Windows/win.ini"
+# T3/T4 大写 scheme（parity 敏感点：Python urlparse 会小写化 scheme）
+run T3 "api -u HTTP://127.0.0.1:18081/real"       -- api -u "HTTP://127.0.0.1:18081/real"
+run T4 "fingerprint -u HTTP://127.0.0.1:18081/real" -- fingerprint -u "HTTP://127.0.0.1:18081/real"
+# T5/T6 目录穿越形态目标
+run T5 "report -t ../../../etc/passwd" -- report -t "../../../etc/passwd"
+run T6 "report -t ..\\..\\..\\pwn"     -- report -t '..\..\..\pwn'
+# T7 纯点目标
+run T7 "report -t ...."                -- report -t "...."
+# T8 控制字符目标（bash $'..' 注入 0x01 0x02）
+run T8 "report -t ctl\x01\x02char"     -- report -t "$(printf 'ctl\x01\x02char')"
+# T9 换行目标
+run T9 "report -t line1\\nline2"       -- report -t "$(printf 'line1\nline2')"
+# T10/T11 Windows 保留设备名目标
+run T10 "report -t CON"                -- report -t "CON"
+run T11 "report -t nul"                -- report -t "nul"
+# T12 超长目标（5000 字符）
+run T12 "report -t A x5000"            -- report -t "$LONG"
+# T13 ICP 域名 query 参数注入（假 key 已注入环境变量，黑洞代理保证零外网）
+run T13 "icp -d 'a&key=ATTACKER_INJECTED'" -- icp -d "a&key=ATTACKER_INJECTED"
+# T14 ICP 路径形态域名
+run T14 "icp -d ../../etc/passwd"      -- icp -d "../../etc/passwd"
+# T15 reverse IP 参数注入
+run T15 "reverse -i '8.8.8.8&x=1'"     -- reverse -i "8.8.8.8&x=1"
+# T16 poc 模板缺失/畸形
+run T16a "poc -p 不存在"                -- poc -t "http://127.0.0.1:18081/real" -p "no_such_poc.yaml"
+printf 'requests:\n  - path: [语法坏\n' > bad_poc.yaml
+run T16b "poc -p 畸形yaml"              -- poc -t "http://127.0.0.1:18081/real" -p "bad_poc.yaml"
+# T17 目标 query 里夹带元数据地址（引擎不应解析执行）
+run T17 "api -u ...?next=http://169.254.169.254/" -- api -u "http://127.0.0.1:18081/real?next=http://169.254.169.254/"
+# T18 未知子命令
+run T18 "未知子命令 pwn"                -- pwn -t x
+# T19 纯空格目标
+run T19 "report -t '  '"               -- report -t "  "
+# T20 unicode 域名
+run T20 "icp -d 例えテスト.jp"          -- icp -d "例えテスト.jp"
+# T21 未实现的 all（契约检查：必须 exit 2 不许静默）
+run T21 "all（未移植须 exit2）"          -- all -t example.com
+
+echo "===== 弹幕完毕，结果如下 ====="
+cat battery_results.txt
+echo "===== 越界目录检查（out/ 之外不得出现新目录）====="
+find . -maxdepth 1 -type d ! -name out ! -name . ! -name redteam-adv2 | sed 's/^/ESCAPED?: /'
+echo "===== out/ 目录名清单（找控制字符/设备名/穿越残留）====="
+ls -b out/ | head -40

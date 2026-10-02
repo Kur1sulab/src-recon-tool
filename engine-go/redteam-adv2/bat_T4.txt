@@ -1,0 +1,2 @@
+[!] 指纹识别请求失败: 404
+[+] 指纹识别完成（0 个命中: 无）-> C:\Users\18270\src-recon-tool\engine-go\redteam-adv2\out\HTTP_127.0.0.1_18081_real\fingerprint.json

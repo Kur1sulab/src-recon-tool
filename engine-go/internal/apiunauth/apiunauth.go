@@ -93,6 +93,23 @@ func Classify(path string, status int, body, ctype string, size int, expect []st
 	return Verdict{Hit: false}
 }
 
+// statusOrNil/errOrNil 对齐 Python r.get("status")/r.get("error") 的 null 语义
+// （fix2 audit low#3①）：请求成功 → status int / error null；失败 → status null /
+// error 字符串。此前 Go 恒出 int/""，落盘 JSON 键型与 Python 漂移。
+func statusOrNil(r netutil.Result) any {
+	if r.OK {
+		return r.Status
+	}
+	return nil
+}
+
+func errOrNil(r netutil.Result) any {
+	if r.Err != "" {
+		return r.Err
+	}
+	return nil
+}
+
 // Probe 探测主流程，对齐 api_unauth.py:67-98。rows/hits 用 map 保持动态键
 // （Python **verdict 展开语义）；hits 排序 = live 优先、风险 高0中1低2（稳定排序）。
 func Probe(baseURL string, timeout time.Duration, verify bool) ([]map[string]any, []map[string]any) {
@@ -104,14 +121,15 @@ func Probe(baseURL string, timeout time.Duration, verify bool) ([]map[string]any
 		fmt.Printf("[!] 该站存在 catch-all（%s），已启用形态比对过滤——假阳性会被剔除\n", bl.Kind)
 	}
 	var rows, hits []map[string]any
+	hop := netutil.HopPolicy(base) // fix2 P1：逐跳校验（策略由入口公网/私网推导）
 	for _, ep := range Endpoints {
 		u := base + ep.Path
-		r := netutil.Fetch(u, netutil.FetchOpt{Timeout: timeout, Follow: true})
+		r := netutil.Fetch(u, netutil.FetchOpt{Timeout: timeout, Follow: true, HopCheck: hop})
 		verdict := Classify(ep.Path, r.Status, r.Body, r.Ctype, r.Size, lowerAll(ep.Expect))
 		row := map[string]any{
 			"path": ep.Path, "name": ep.Name, "risk": ep.Risk,
-			"status": r.Status, "size": r.Size, "digest": r.Digest,
-			"ctype": r.Ctype, "final_url": r.FinalURL, "error": r.Err,
+			"status": statusOrNil(r), "size": r.Size, "digest": r.Digest,
+			"ctype": r.Ctype, "final_url": r.FinalURL, "error": errOrNil(r),
 			"hit": verdict.Hit,
 		}
 		if verdict.Hit {
@@ -139,6 +157,12 @@ func Probe(baseURL string, timeout time.Duration, verify bool) ([]map[string]any
 		rows = append(rows, row)
 	}
 	order := map[string]int{"高": 0, "中": 1, "低": 2}
+	rank := func(s string) int { // 对齐 Python order.get(risk, 3)：表外值排尾
+		if v, ok := order[s]; ok {
+			return v
+		}
+		return 3
+	}
 	sort.SliceStable(hits, func(i, j int) bool {
 		li, _ := hits[i]["live"].(bool)
 		lj, _ := hits[j]["live"].(bool)
@@ -147,7 +171,7 @@ func Probe(baseURL string, timeout time.Duration, verify bool) ([]map[string]any
 		}
 		ri, _ := hits[i]["risk"].(string)
 		rj, _ := hits[j]["risk"].(string)
-		return order[ri] < order[rj]
+		return rank(ri) < rank(rj)
 	})
 	return rows, hits
 }
@@ -170,7 +194,9 @@ func SaveEvidence(row map[string]any, out string) (map[string]any, error) {
 	}
 	ts := time.Now().Format("2006-01-02T15:04:05Z07:00") // astimezone().isoformat(seconds) 等价
 
-	r := netutil.Fetch(rawURL, netutil.FetchOpt{Timeout: 15 * time.Second, Follow: true})
+	// fix2 P1：取证请求同样逐跳校验（该 URL 可能已被 302 带离入口）
+	r := netutil.Fetch(rawURL, netutil.FetchOpt{Timeout: 15 * time.Second, Follow: true,
+		HopCheck: netutil.HopPolicy(rawURL)})
 	recheckAttempts := attemptsOf(row["recheck"])
 	meta := map[string]any{
 		"url": rawURL, "collected_at": ts, "status": r.Status, "size": r.Size,

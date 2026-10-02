@@ -226,13 +226,13 @@ func jsonUnmarshalInto(s string, v any) error {
 
 func TestSafeFilename(t *testing.T) {
 	cases := map[string]string{
-		"a/b:c*d?.txt":     "a_b_c_d_.txt",
+		"a/b:c*d?.txt": "a_b_c_d_.txt",
 		// 期望值以 python re.sub(...)[:64].strip('.') 实测为准（strip 会剥掉开头 ..）
 		"../../etc/passwd": "_.._etc_passwd",
 		"":                 "unknown",
 		".":                "unknown",
 		"...":              "unknown",
-		"正常.txt":            "__.txt",
+		"正常.txt":           "__.txt",
 	}
 	for in, want := range cases {
 		if got := SafeFilename(in); got != want {

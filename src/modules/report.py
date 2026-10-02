@@ -9,6 +9,7 @@ out/evidence/ 下的取证目录打包成 zip（便于随提交稿一起交付�
   - 幂等：重复运行覆盖自己的产出，不追加、不重复计数。
 """
 import datetime
+import itertools
 import glob
 import json
 import os
@@ -201,7 +202,11 @@ def pack_evidence(out: str, target: str) -> str:
     if not files:
         return ""
     safe = "".join(c if (c.isalnum() or c in "._-") else "_" for c in target)[:48] or "target"
-    ts = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    # fix2 P2（与 Go ZipStamp 同步）：秒级戳在同秒并发 report 打同一 out/
+    # 时互相覆盖（实测 4 进程只活 1 个 zip）——加微秒与 PID 保证唯一
+    _zip_seq = globals().setdefault("_ZIP_SEQ", itertools.count(1))
+    ts = (datetime.datetime.now().strftime("%Y%m%d-%H%M%S.%f")
+          + f"-{next(_zip_seq):04d}-{os.getpid()}")
     zip_path = os.path.join(out, f"evidence-{safe}-{ts}.zip")
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
         for fp in files:

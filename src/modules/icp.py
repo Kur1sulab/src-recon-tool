@@ -42,12 +42,21 @@ def parse_icp(payload) -> dict:
 
 
 def query_icp(domain: str, tries: int = 3) -> dict:
-    cid = os.environ.get("APIHZ_ID", "88888888")
-    key = os.environ.get("APIHZ_KEY", "88888888")
-    url = f"{_API}?id={cid}&key={key}&domain={domain}"
+    # fix2 凭据纪律（与 Go icp.go 同步）：凭据只从环境变量读取，未配置即跳过
+    # 请求——不再回落到任何源码字面量（共享 demo 额度会把目标误判，且属于
+    # 「源码写入可用凭据字面量」红线）。
+    cid = os.environ.get("APIHZ_ID", "")
+    key = os.environ.get("APIHZ_KEY", "")
+    if not cid or not key:
+        return {"filed": False,
+                "msg": "未配置 APIHZ_ID/APIHZ_KEY，跳过 ICP 查询（设置环境变量后重试）"}
+    # fix2 P1（与 Go 同步）：domain 经 urlencode（防 a&key=... 注入第二个参数）；
+    # id/key 在 query 里是接口契约，follow=False 杜绝凭据随 302 外送
+    from urllib.parse import urlencode as _urlencode
+    url = f"{_API}?{_urlencode({'id': cid, 'key': key, 'domain': domain})}"
     last = ""
     for i in range(1, tries + 1):
-        r = netutil.fetch(url, timeout=20)
+        r = netutil.fetch(url, timeout=20, follow=False)
         if r.get("ok") and r.get("status") == 200 and r.get("body"):
             return parse_icp(r["body"])
         last = r.get("error") or f"HTTP {r.get('status')}"

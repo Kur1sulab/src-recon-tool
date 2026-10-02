@@ -1,0 +1,2 @@
+[+] 资产档案已生成 -> C:\Users\18270\src-recon-tool\engine-go\redteam-adv2\out\http_127.0.0.1_18081_real\report.md
+[+] 证据包已打包（20 个文件，10.9 KB）-> out\http_127.0.0.1_18081_real\evidence-http_127.0.0.1_18081_real-20261002-081543.zip

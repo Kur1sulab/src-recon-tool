@@ -41,8 +41,8 @@ func synthBundle(t *testing.T, out, evDir string) {
 			"live": true, "evidence_dir": evDir, "evidence": `body 含 "propertysources"`}}}))
 	write("jsintel.json", jsonx.Compact(map[string]any{
 		"base": "https://example.com", "page_status": 200,
-		"scripts": map[string]any{"external": 3, "inline": 1, "downloaded": 3, "failed": 0},
-		"endpoints": []string{"/api/v1/users"},
+		"scripts":        map[string]any{"external": 3, "inline": 1, "downloaded": 3, "failed": 0},
+		"endpoints":      []string{"/api/v1/users"},
 		"endpoints_full": []string{"https://example.com/api/v1/users"},
 		"sensitive": []map[string]any{{"file": "/js/app.js", "line": 5, "key": "password",
 			"value": "Sup3****", "snippet": "var cfg2={password:'Sup3****'"}},

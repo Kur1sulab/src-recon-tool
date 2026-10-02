@@ -1,0 +1,4 @@
+[*] API 文档/未授权探测: file:///C:/Windows/win.ini（27 个候选端点）
+[*] 站点基线: unknown（随机路径 → 0, 0B, -）
+[*] 探测完成：未发现暴露的 API 文档/运维端点（catch-all 过滤掉 0 条疑似）
+    -> C:\Users\18270\src-recon-tool\engine-go\redteam-adv2\out\file__C__Windows_win.ini\api_unauth.json

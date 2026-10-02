@@ -61,8 +61,11 @@ func HTTPProbe(host string, timeout time.Duration, port int) ProbeResult {
 	if port > 0 {
 		suffix = fmt.Sprintf(":%d", port)
 	}
+	// fix2 P1：探活跟随重定向同样逐跳校验（入口公网→私网落点阻断；
+	// 入口私网=授权内网靶标→放行），https/http 两尝试共享同一入口策略
+	hop := netutil.HopPolicy("https://" + host + suffix)
 	for _, scheme := range []string{"https", "http"} {
-		r := netutil.Fetch(scheme+"://"+host+suffix, netutil.FetchOpt{Timeout: timeout, Follow: true})
+		r := netutil.Fetch(scheme+"://"+host+suffix, netutil.FetchOpt{Timeout: timeout, Follow: true, HopCheck: hop})
 		if r.OK && r.Status != 0 {
 			title := ""
 			if m := titleRe.FindStringSubmatch(r.Body); m != nil {

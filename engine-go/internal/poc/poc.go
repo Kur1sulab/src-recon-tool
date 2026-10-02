@@ -36,8 +36,8 @@ type Request struct {
 
 // Template POC 模板。
 type Template struct {
-	ID       string `yaml:"id"`
-	Info     struct {
+	ID   string `yaml:"id"`
+	Info struct {
 		Name     string `yaml:"name"`
 		Severity string `yaml:"severity"`
 	} `yaml:"info"`
@@ -119,6 +119,7 @@ func RunPOC(target, pocFile string) bool {
 		}
 		r := netutil.Fetch(url, netutil.FetchOpt{
 			Timeout: 10 * time.Second, Method: method, Headers: headers, Data: data, Follow: true,
+			HopCheck: netutil.HopPolicy(url), // fix2 P1：逐跳校验
 		})
 		if r.Status == 0 { // Python status is None → 请求异常
 			fmt.Printf("[!] 请求异常 %s: %s\n", url, r.Err)

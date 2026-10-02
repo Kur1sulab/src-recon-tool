@@ -1,0 +1,5 @@
+[*] API 文档/未授权探测: http://127.0.0.1:18081/soft404（27 个候选端点）
+[*] 站点基线: soft404（随机路径 → 200, 96B, text/html; charset=utf-8）
+[!] 该站存在 catch-all（soft404），已启用形态比对过滤——假阳性会被剔除
+[*] 探测完成：未发现暴露的 API 文档/运维端点（catch-all 过滤掉 0 条疑似）
+    -> C:\Users\18270\src-recon-tool\engine-go\redteam-adv2\out\http_127.0.0.1_18081_soft404\api_unauth.json

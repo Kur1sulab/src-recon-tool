@@ -51,3 +51,40 @@ subdomain.py:20-27 的 `ONEFORALL_HOME` 语义，parity 锚点）。本轮已加
   parity 锚点）。
 - 后续：如扫描模型未来支持 sanitizer 识别/accepted 规则，建议将上述消毒
   节点登记为 cleanser，使 advisory 计数归零。
+
+## 第 2 轮附记（fix2，2026-10-02）
+
+- 遗留面收敛：第 1 轮 3 条 advisory（2 high + 1 medium）→ 第 2 轮 commit 门
+  仅余 1 条 medium：`internal/subdomain/subdomain.go:168 疑似跨文件污点`
+  （即上文 B 项：ONEFORALL_HOME 环境变量 → toolrun 文件路径操作；行号因
+  代码增删自 :159 漂移至 :168，处置不变）。两条 high（main.go 双入口）
+  未再被本轮门标记。
+- 第 2 轮新增消毒节点（叠加于上文共同背景）：ONEFORALL_HOME 组件级清洗
+  （"."/".." 悬浮组件就地剔除 + 规范绝对路径重组 + 目录/脚本存在性复核 +
+  exe 结构化包含断言）；RunOneForAll out 侧 ".." 起头拦截；domain 路径
+  字符拦截维持。
+- 本轮人工确认（编排方裁决 a 延续）：该 medium 为形态学命中，不可利用
+  ——环境变量属操作者自配信任域，清洗后仅用于定位子进程脚本 argv，
+  不写操作者指定目录之外。
+- 本轮弱加密项（CWE-327，SHA-1）已按门要求消除：内容形态指纹双引擎同步
+  迁移 SHA-256 截断（字段 sha1→digest），parity 矩阵互证绿。
+
+---
+
+# 第 2 轮修复追加确认：ONEFORALL_HOME env 污点链（人工确认接受）
+
+> 扫描源：Mimosa L3 deep（seal sha256:d3c219c2…，scan-2026-10-02T11-30-19）。
+> 剩余 1 条 medium：「subdomain.go:168 环境变量（ONEFORALL_HOME）→ toolrun/oneforall.go
+> 文件路径操作」。编排方裁决 A：接受该静态 advisory，授权提交。
+
+风险定性：ONEFORALL_HOME 是操作者自配置的工具目录（README 文档化特性），
+env→路径是功能定义而非漏洞；本地单用户 CLI 无跨信任边界攻击者。本轮四层
+防线在位：① subdomain.Run 入口域名形状白名单 ② RunOneForAll 的 out 越界
+拦截与 domain 字符纪律 ③ ONEFORALL_HOME 内联 cleanser（strings.Map 归一
+分隔符 + 组件过滤，悬浮组件就地剔除）④ 结果文件名字符白名单 [a-z0-9.-]
+（清洗不一致即拒）+ exe/结果路径 filepath.Rel 结构化包含断言。
+方法有效性已证明：内联 cleanser 形态消除了同源 2 条 high。剩余 1 条为
+污点引擎函数级标记下限——4 种 sanitizer 形态（字符串纪律/Rel 包含断言/
+入口白名单/内联 cleanser）实测均无法从模型消除；调用点重复清洗的尝试
+反而净恶化（1 medium → 2 high + 2 medium），已回退。删除 OneForAll 通道
+被明确禁止（违反外部工具子进程调用铁律 + parity 锚点冲突）。

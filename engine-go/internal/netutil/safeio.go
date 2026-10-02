@@ -24,6 +24,20 @@ var winReservedStems = map[string]bool{
 	"lpt6": true, "lpt7": true, "lpt8": true, "lpt9": true,
 }
 
+// DefuseWindowsReservedStem 若 s 的主干（首个 '.' 之前的部分，大小写不敏感）
+// 是 Windows 保留设备名（con/prn/aux/nul/com1-9/lpt1-9），在主干后补 "_" 规避；
+// 否则原样返回。供 SafeFilename 与 MakeOutdir/outDirFor（目录名同规则）共用。
+func DefuseWindowsReservedStem(s string) string {
+	stem, ext := s, ""
+	if i := strings.Index(s, "."); i >= 0 {
+		stem, ext = s[:i], s[i:]
+	}
+	if winReservedStems[strings.ToLower(stem)] {
+		return stem + "_" + ext
+	}
+	return s
+}
+
 // SafeFilename 文件名白名单清洗，对齐 netutil.py:69-74：
 // 只保留 [A-Za-z0-9._-]，其余换 _；截 64 字符；去首尾点号；空串回 unknown。
 // fix1 P2：Windows 保留设备名主干（con/nul/aux/com1-9/lpt1-9，任意扩展名组合）
@@ -38,14 +52,7 @@ func SafeFilename(s string) string {
 	if s == "" {
 		return "unknown"
 	}
-	stem, ext := s, ""
-	if i := strings.Index(s, "."); i >= 0 {
-		stem, ext = s[:i], s[i:]
-	}
-	if winReservedStems[strings.ToLower(stem)] {
-		s = stem + "_" + ext
-	}
-	return s
+	return DefuseWindowsReservedStem(s)
 }
 
 // SafeOutdir 输出目录纵深防御，对齐 netutil.py:114-128：

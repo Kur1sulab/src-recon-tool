@@ -12,11 +12,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Kur1sulab/src-recon-tool/engine-go/internal/fingerprint"
-	"github.com/Kur1sulab/src-recon-tool/engine-go/internal/netutil"
-	"github.com/Kur1sulab/src-recon-tool/engine-go/internal/asset"
 	"github.com/Kur1sulab/src-recon-tool/engine-go/internal/apiunauth"
+	"github.com/Kur1sulab/src-recon-tool/engine-go/internal/asset"
+	"github.com/Kur1sulab/src-recon-tool/engine-go/internal/fingerprint"
 	"github.com/Kur1sulab/src-recon-tool/engine-go/internal/icp"
+	"github.com/Kur1sulab/src-recon-tool/engine-go/internal/netutil"
 	"github.com/Kur1sulab/src-recon-tool/engine-go/internal/paths"
 	"github.com/Kur1sulab/src-recon-tool/engine-go/internal/poc"
 	"github.com/Kur1sulab/src-recon-tool/engine-go/internal/report"
@@ -119,7 +119,7 @@ func dispatch(cmd string, rest []string) int {
 		if !parseOrUsage(fs, rest, cmd, "subdomain -d <domain> [--verify]") {
 			return 2
 		}
-		d := pickNonEmpty(*domain, *domainAlias)
+		d := pickAliasLastWins(rest, map[string]*string{"-d": domain, "--domain": domainAlias})
 		if d == "" {
 			return missingArgs(cmd, "subdomain -d <domain> [--verify]")
 		}
@@ -143,7 +143,7 @@ func dispatch(cmd string, rest []string) int {
 		if !parseOrUsage(fs, rest, cmd, "verify -d <domain> [-w workers]") {
 			return 2
 		}
-		d := pickNonEmpty(*domain, *domainAlias)
+		d := pickAliasLastWins(rest, map[string]*string{"-d": domain, "--domain": domainAlias})
 		if d == "" {
 			return missingArgs(cmd, "verify -d <domain> [-w workers]")
 		}
@@ -152,7 +152,7 @@ func dispatch(cmd string, rest []string) int {
 			fmt.Printf("[!] 输出目录创建失败: %v\n", err)
 			return 1
 		}
-		subdomain.RunVerify(out, pickInt(*workers, *workersAlias, 8), true)
+		subdomain.RunVerify(out, pickIntAliasLastWins(rest, 8, map[string]*int{"-w": workers, "--workers": workersAlias}), true)
 		return 0
 
 	case "fingerprint":
@@ -162,7 +162,7 @@ func dispatch(cmd string, rest []string) int {
 		if !parseOrUsage(fs, rest, cmd, "fingerprint -u <url>") {
 			return 2
 		}
-		url := pickNonEmpty(*u, *uAlias)
+		url := pickAliasLastWins(rest, map[string]*string{"-u": u, "--url": uAlias})
 		if url == "" {
 			return missingArgs(cmd, "fingerprint -u <url>")
 		}
@@ -186,7 +186,7 @@ func dispatch(cmd string, rest []string) int {
 		if !parseOrUsage(fs, rest, cmd, "asset -d <domain>") {
 			return 2
 		}
-		d := pickNonEmpty(*domain, *domainAlias)
+		d := pickAliasLastWins(rest, map[string]*string{"-d": domain, "--domain": domainAlias})
 		if d == "" {
 			return missingArgs(cmd, "asset -d <domain>")
 		}
@@ -205,9 +205,16 @@ func dispatch(cmd string, rest []string) int {
 		if !parseOrUsage(fs, rest, cmd, "reverse -i <ip>") {
 			return 2
 		}
-		target := pickNonEmpty(*ip, *ipAlias)
+		target := pickAliasLastWins(rest, map[string]*string{"-i": ip, "--ip": ipAlias})
 		if target == "" {
 			return missingArgs(cmd, "reverse -i <ip>")
+		}
+		// fix2 P3：严格 IP 校验——`reverse -i '8.8.8.8&x=1'` 这类注入形态参数
+		// 在入口拒绝（对抗实测曾照单全收拼进数据源 URL）。Go 侧 fail-closed，
+		// Python 侧维持原行为，差异记入 README 已知微差。
+		if net.ParseIP(target) == nil {
+			fmt.Printf("[!] 非法 IP: %q（reverse -i 需要合法 IPv4/IPv6 地址）\n", target)
+			return 2
 		}
 		out, err := MakeOutdir(target)
 		if err != nil {
@@ -224,9 +231,15 @@ func dispatch(cmd string, rest []string) int {
 		if !parseOrUsage(fs, rest, cmd, "icp -d <domain>") {
 			return 2
 		}
-		d := pickNonEmpty(*domain, *domainAlias)
+		d := pickAliasLastWins(rest, map[string]*string{"-d": domain, "--domain": domainAlias})
 		if d == "" {
 			return missingArgs(cmd, "icp -d <domain>")
+		}
+		// fix2 P3：域名形状校验（与 subdomain 入口污点闸同规则），注入/路径
+		// 形态在入口拒绝，不进任何第三方查询。
+		if bad, why := invalidDomainShape(d); bad {
+			fmt.Printf("[!] 非法域名（%s）: %q\n", why, d)
+			return 2
 		}
 		out, err := MakeOutdir(d)
 		if err != nil {
@@ -243,7 +256,7 @@ func dispatch(cmd string, rest []string) int {
 		if !parseOrUsage(fs, rest, cmd, "api -u <url>") {
 			return 2
 		}
-		url := pickNonEmpty(*u, *uAlias)
+		url := pickAliasLastWins(rest, map[string]*string{"-u": u, "--url": uAlias})
 		if url == "" {
 			return missingArgs(cmd, "api -u <url>")
 		}
@@ -262,7 +275,7 @@ func dispatch(cmd string, rest []string) int {
 		if !parseOrUsage(fs, rest, cmd, "paths -u <url>") {
 			return 2
 		}
-		url := pickNonEmpty(*u, *uAlias)
+		url := pickAliasLastWins(rest, map[string]*string{"-u": u, "--url": uAlias})
 		if url == "" {
 			return missingArgs(cmd, "paths -u <url>")
 		}
@@ -295,7 +308,7 @@ func dispatch(cmd string, rest []string) int {
 		if !parseOrUsage(fs, rest, cmd, "report -t <target>") {
 			return 2
 		}
-		t := pickNonEmpty3(*target, *targetAlias, *domainAlias)
+		t := pickAliasLastWins(rest, map[string]*string{"-t": target, "--target": targetAlias, "-d": domainAlias})
 		if t == "" {
 			return missingArgs(cmd, "report -t <target>")
 		}
@@ -358,6 +371,10 @@ func MakeOutdir(target string) (string, error) {
 	if name == "" || name == ".." {
 		name = "unknown"
 	}
+	// fix2 P3：Windows 保留设备名主干（con/nul/aux/com1-9/lpt1-9）与
+	// SafeFilename 同规则补 _——实测 `report -t CON` 会在本机建出 out\CON，
+	// 与文件层加固不一致。Python make_outdir / desktop outDirFor 同步。
+	name = netutil.DefuseWindowsReservedStem(name)
 	out := "out" + string(os.PathSeparator) + name
 	if err := os.MkdirAll(out, 0o755); err != nil {
 		return out, err
@@ -410,6 +427,87 @@ func parseOrUsage(fs *flag.FlagSet, args []string, cmd, usage string) bool {
 func missingArgs(cmd, usage string) int {
 	fmt.Printf("[!] 缺少必填参数（subcommand=%s）\n  用法: recon-go %s\n", cmd, usage)
 	return 2
+}
+
+// pickAliasLastWins 重复旗标取「命令行中最后出现」者的值（argparse last-wins
+// 语义，fix2 audit low#7：此前 pickNonEmpty 取第一个非空，与 Python 相反——
+// `verify -w 16 --workers 8` Go 得 16、Python 得 8）。fs.Visit 是字典序而非
+// 命令行序，故按原始 args 里各别名的最后出现位置判定。
+// 未显式设置任何别名时返回零值""（由调用方走 missingArgs）。
+func pickAliasLastWins(args []string, vals map[string]*string) string {
+	norm := map[string]*string{}
+	for k, v := range vals {
+		norm[strings.TrimLeft(k, "-")] = v // vals 键带横线；args token 无横线
+	}
+	lastPos := map[string]int{}
+	for i, tk := range args {
+		name := strings.TrimLeft(tk, "-")
+		if j := strings.IndexByte(name, '='); j >= 0 {
+			name = name[:j]
+		}
+		if _, isAlias := norm[name]; isAlias {
+			lastPos[name] = i
+		}
+	}
+	best, picked := -1, ""
+	for name, p := range norm {
+		if o, ok := lastPos[name]; ok && o > best {
+			best, picked = o, *p
+		}
+	}
+	return picked
+}
+
+// pickIntAliasLastWins 同 pickAliasLastWins 的 int 版；全部未设置回 def。
+func pickIntAliasLastWins(args []string, def int, vals map[string]*int) int {
+	norm := map[string]*int{}
+	for k, v := range vals {
+		norm[strings.TrimLeft(k, "-")] = v
+	}
+	lastPos := map[string]int{}
+	for i, tk := range args {
+		name := strings.TrimLeft(tk, "-")
+		if j := strings.IndexByte(name, '='); j >= 0 {
+			name = name[:j]
+		}
+		if _, isAlias := norm[name]; isAlias {
+			lastPos[name] = i
+		}
+	}
+	best, picked, any := -1, def, false
+	for name, p := range norm {
+		if o, ok := lastPos[name]; ok && o > best {
+			best, picked, any = o, *p, true
+		}
+	}
+	if !any {
+		return def
+	}
+	return picked
+}
+
+// invalidDomainShape 域名形状白名单（与 subdomain.Run 入口污点闸同规则）：
+// 非空、≤253、无路径分隔符/悬浮点组件/控制字符。bad=true 时 why 给出原因。
+func invalidDomainShape(d string) (bool, string) {
+	v := strings.TrimSpace(d)
+	switch {
+	case v == "":
+		return true, "空"
+	case len(v) > 253:
+		return true, "超长"
+	case strings.ContainsAny(v, `/\`):
+		return true, "含路径分隔符"
+	case strings.Contains(v, ".."):
+		return true, "含悬浮点组件"
+	case strings.ContainsFunc(v, func(r rune) bool { return r <= 0x20 || r == 0x7f }):
+		return true, "含控制字符/空白"
+	case strings.ContainsFunc(v, func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' ||
+			r >= '0' && r <= '9' || r == '.' || r == '-')
+	}):
+		return true, "含域名合法字符集之外的字符（&=?# 等）"
+	}
+	return false, ""
 }
 
 func pickNonEmpty(a, b string) string {

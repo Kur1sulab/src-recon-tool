@@ -51,7 +51,7 @@ func TestScenarios(t *testing.T) {
 		t.Errorf("api404: %d %q", resp.StatusCode, body)
 	}
 	for _, p := range TruePositives {
-		if resp, _ := get("/real"+p); resp.StatusCode != 200 {
+		if resp, _ := get("/real" + p); resp.StatusCode != 200 {
 			t.Errorf("real%s: %d", p, resp.StatusCode)
 		}
 	}
@@ -87,7 +87,7 @@ print(json.dumps({
 `
 	out := parity.RunPy(t, code)
 	var py struct {
-		Spa  string            `json:"spa"`
+		Spa  string              `json:"spa"`
 		Real map[string][]string `json:"real"`
 	}
 	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &py); err != nil {

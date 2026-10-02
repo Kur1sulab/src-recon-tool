@@ -80,8 +80,8 @@ func TestSafeFilenameWindowsReservedStems(t *testing.T) {
 		{"nul", "nul_"},
 		{"LPT9.log", "LPT9_.log"},
 		{"aux", "aux_"},
-		{"config.txt", "config.txt"},   // 主干非设备名不动
-		{"conny.txt", "conny.txt"},     // 前缀命中不算
+		{"config.txt", "config.txt"}, // 主干非设备名不动
+		{"conny.txt", "conny.txt"},   // 前缀命中不算
 		{"audit_report.md", "audit_report.md"},
 		{"bad/name?.txt", "bad_name_.txt"},
 	}

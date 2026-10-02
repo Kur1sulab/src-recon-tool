@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/Kur1sulab/src-recon-tool/engine-go/internal/netutil"
@@ -22,8 +23,17 @@ var Now = func() string {
 }
 
 // ZipStamp 证据包文件名时间戳（可注入，测试固定）。
+// fix2 P2：秒级戳 + os.Create 截断在「同秒并发 report 打同一 out/」时互相
+// 覆盖（对抗实测 4 进程同秒只活 1 个 zip）——加纳秒、进程内原子序数与 PID
+// 保证唯一（Windows 时钟粒度下纳秒可能同 tick 重复，序数兜底）；
+// Python pack_evidence 同步该形态（parity：两引擎文件名同构）。
+var (
+	zipStampSeq atomic.Uint64
+)
+
 var ZipStamp = func() string {
-	return time.Now().Format("20060102-150405")
+	return time.Now().Format("20060102-150405.000000000") +
+		fmt.Sprintf("-%04d-%d", zipStampSeq.Add(1), os.Getpid())
 }
 
 func readJSON(path string) map[string]any {
@@ -131,12 +141,19 @@ func RenderMD(b map[string]any) string {
 			top = top[:10]
 		}
 		a(fmt.Sprintf("| IP 反查域名 | %s |", strings.Join(top, ", ")))
-		n := 0
-		for dom, dv := range icp {
-			if n >= 5 {
-				break
-			}
-			n++
+		// fix2 audit low#4：Go map 迭代随机——>5 份备案时每次运行展示的
+		// 子集与顺序都不同（Python list(dict.items())[:5] 保持 sorted(glob)
+		// 插入序，输出确定）。按域名排序取前 5，恢复可复现性。
+		doms := make([]string, 0, len(icp))
+		for dom := range icp {
+			doms = append(doms, dom)
+		}
+		sort.Strings(doms)
+		if len(doms) > 5 {
+			doms = doms[:5]
+		}
+		for _, dom := range doms {
+			dv := icp[dom]
 			d, _ := dv.(map[string]any)
 			icpNo := strings.TrimSpace(strOrDash(d["icp"]))
 			unit := strings.TrimSpace(strOrDash(d["unit"]))
@@ -419,11 +436,11 @@ func PackEvidence(out, target string) string {
 		safe = []rune("target")
 	}
 	zipPath := filepath.Join(out, fmt.Sprintf("evidence-%s-%s.zip", string(safe), ZipStamp()))
-	zf, err := os.Create(zipPath)
+	tmpZip := zipPath + ".part"
+	zf, err := os.Create(tmpZip)
 	if err != nil {
 		return ""
 	}
-	defer zf.Close()
 	w := zip.NewWriter(zf)
 	defer w.Close()
 	for _, fp := range files {
@@ -433,7 +450,18 @@ func PackEvidence(out, target string) string {
 		}
 		// zip 规范用正斜杠（Python zipfile.write 内部同样做 os.sep→"/" 规范化）
 		rel = filepath.ToSlash(rel)
-		if strings.Contains(rel, "..") {
+		// fix2 P2：'..' 子串（pwn_..%2F..%2Fwin.ini、dir_a..b/ 等）是合法文件名
+		// 的一部分，不构成 zip 穿越——此前按子串整只跳过会静默丢证；穿越只
+		// 可能由「段恰为 ..」构成（Rel 产物已被上方 HasPrefix/IsAbs 拦死），
+		// 这里按段防御性复检，其余照收，杜绝证据包缺件无告警。
+		unsafe := false
+		for _, seg := range strings.Split(rel, "/") {
+			if seg == ".." {
+				unsafe = true
+				break
+			}
+		}
+		if unsafe {
 			continue
 		}
 		data, rerr := os.ReadFile(fp)
@@ -446,6 +474,20 @@ func PackEvidence(out, target string) string {
 			continue
 		}
 		_, _ = f.Write(data)
+	}
+	// fix2 P2：先写 .part 再原子改名——并发/中途失败都不会留下截断的 zip
+	if err := w.Close(); err != nil {
+		zf.Close()
+		os.Remove(tmpZip)
+		return ""
+	}
+	if err := zf.Close(); err != nil {
+		os.Remove(tmpZip)
+		return ""
+	}
+	if err := os.Rename(tmpZip, zipPath); err != nil {
+		os.Remove(tmpZip)
+		return ""
 	}
 	return zipPath
 }

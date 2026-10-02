@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# 对抗测试④：并发全模块跑稳定性（零外网：黑洞代理 + NO_PROXY 仅本机靶站）
+# 12 进程并发：api×3（不同场景）+ paths×2 + fingerprint×2 + report×4（同一目录，故意同秒碰撞）+ reverse×1
+# 同时覆盖⑤：其中 report 目标目录已埋恶意文件名证据，跑完检验 zip 条目
+set -u
+EXE="$(cd "$(dirname "$0")/.." && pwd)/redteam-recon.exe"
+export HTTP_PROXY=http://127.0.0.1:9 HTTPS_PROXY=http://127.0.0.1:9
+export NO_PROXY=127.0.0.1,localhost,192.168.88.1
+export PYTHONUTF8=1
+export APIHZ_ID=CONCID000 APIHZ_KEY=CONCKEY000
+cd "$(dirname "$0")"
+rm -rf conc && mkdir conc
+TGT=http://127.0.0.1:18081
+
+# 先单独跑一次 /real 的 api 取证，生成正规证据，供 report/zip 检验
+"$EXE" api -u "$TGT/real" > conc/pre_api_real.txt 2>&1
+EVDIR=$(ls -d out/http_127.0.0.1_18081_real/evidence/* 2>/dev/null | head -1)
+echo "正规证据目录: $EVDIR"
+
+# ⑤ 前置：在正规证据目录里埋恶意文件名/恶意子目录（模拟证据目录被塞脏东西）
+if [ -n "$EVDIR" ]; then
+  python - <<'PYEOF'
+import os
+ev = os.environ.get('EVDIR') or os.listdir('out/http_127.0.0.1_18081_real/evidence')[0]
+ev = os.path.abspath('out/http_127.0.0.1_18081_real/evidence/' + os.listdir('out/http_127.0.0.1_18081_real/evidence')[0])
+plants = {
+    'pwn_..%2F..%2F..%2Fwin.ini': 'X',      # 含 ".." 子串的文件名
+    '证据_特洛伊_رئيسية.txt': 'Y',            # unicode 混写
+    '.dot_hidden': 'Z',                      # 点开头
+    ('A'*200) + '.txt': 'L',                 # 超长文件名
+    'semi;colon&eq=name#hash.txt': 'S',      # shell/URL 元字符
+}
+for name, content in plants.items():
+    try:
+        with open(os.path.join(ev, name), 'w', encoding='utf-8') as f:
+            f.write(content)
+        print('planted:', name[:40])
+    except OSError as e:
+        print('plant failed:', name[:40], e)
+d = os.path.join(ev, 'dir_a..b')            # 目录名含 ".." 子串
+os.makedirs(d, exist_ok=True)
+with open(os.path.join(d, 'child.json'), 'w', encoding='utf-8') as f:
+    f.write('{}')
+print('planted dir: dir_a..b/child.json')
+try:
+    with open(os.path.join(ev, 'CON.txt'), 'w') as f:
+        f.write('C')
+    print('planted: CON.txt')
+except OSError as e:
+    print('plant CON.txt failed:', e)
+PYEOF
+fi
+
+# ④ 并发开炮：12 进程
+( "$EXE" api -u "$TGT/real"        >conc/c01_api_real.txt 2>&1;     echo $? >conc/c01.code ) &
+( "$EXE" api -u "$TGT/soft404"     >conc/c02_api_soft404.txt 2>&1;  echo $? >conc/c02.code ) &
+( "$EXE" api -u "$TGT/loop302"     >conc/c03_api_loop302.txt 2>&1;  echo $? >conc/c03.code ) &
+( "$EXE" paths -u "$TGT/real"      >conc/c04_paths_real.txt 2>&1;   echo $? >conc/c04.code ) &
+( "$EXE" paths -u "$TGT/soft404"   >conc/c05_paths_soft.txt 2>&1;   echo $? >conc/c05.code ) &
+( "$EXE" fingerprint -u "$TGT/real/swagger-ui.html" >conc/c06_fp.txt 2>&1; echo $? >conc/c06.code ) &
+( "$EXE" fingerprint -u "$TGT/real/v3/api-docs"     >conc/c07_fp.txt 2>&1; echo $? >conc/c07.code ) &
+( "$EXE" report -t "http_127.0.0.1_18081_real" >conc/c08_report.txt 2>&1; echo $? >conc/c08.code ) &
+( "$EXE" report -t "http_127.0.0.1_18081_real" >conc/c09_report.txt 2>&1; echo $? >conc/c09.code ) &
+( "$EXE" report -t "http_127.0.0.1_18081_real" >conc/c10_report.txt 2>&1; echo $? >conc/c10.code ) &
+( "$EXE" report -t "http_127.0.0.1_18081_real" >conc/c11_report.txt 2>&1; echo $? >conc/c11.code ) &
+( "$EXE" reverse -i "203.0.113.9"  >conc/c12_reverse.txt 2>&1;      echo $? >conc/c12.code ) &
+wait
+echo "===== 各进程退出码 ====="
+for f in conc/c*.code; do echo "$(basename $f .code)= $(cat $f)"; done
+echo "===== panic/crash 扫描 ====="
+grep -l "panic\|goroutine .* \[running\]\|fatal error:" conc/*.txt 2>/dev/null || echo "无 panic"
+echo "===== zip 完整性检验（同秒碰撞目标）====="
+ls out/http_127.0.0.1_18081_real/evidence-*.zip 2>/dev/null
+python - <<'PYEOF'
+import glob, zipfile
+for z in glob.glob('out/http_127.0.0.1_18081_real/evidence-*.zip'):
+    try:
+        zf = zipfile.ZipFile(z)
+        bad = zf.testzip()
+        names = zf.namelist()
+        print('%s | 条目=%d | 损坏=%s' % (z.split('/')[-1], len(names), bad))
+        # 路径穿越断言
+        evil = [n for n in names if n.startswith('/') or n.startswith('\\') or '..' in n or len(n)>2 and n[1]==':' or '\\' in n]
+        print('  穿越条目:', evil if evil else '无')
+        # 恶意文件是否被收进包
+        pwn = [n for n in names if 'pwn_' in n or 'dir_a' in n or '特洛伊' in n or 'CON' in n or 'A' * 50 in n]
+        print('  恶意名条目:', pwn if pwn else '（均未入包/被清洗）')
+    except Exception as e:
+        print('%s | 读取失败: %s' % (z, e))
+PYEOF
+echo "===== JSON 产物有效性 ====="
+python - <<'PYEOF'
+import glob, json, io
+ok = bad = 0
+for f in glob.glob('out/**/*.json', recursive=True) + glob.glob('out/*/api_unauth.json'):
+    try:
+        json.load(io.open(f, encoding='utf-8')); ok += 1
+    except Exception:
+        bad += 1; print('INVALID JSON:', f)
+print('JSON 有效 %d / 无效 %d' % (ok, bad))
+PYEOF

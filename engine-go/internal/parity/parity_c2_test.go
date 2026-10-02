@@ -144,8 +144,8 @@ print(json.dumps(_match(json.loads(sys.argv[1]), int(sys.argv[2]), sys.argv[3], 
 func TestParityRenderMD(t *testing.T) {
 	RequiresPython(t)
 	bundle := map[string]any{
-		"target":       "example.com",
-		"generated_at": "2026-10-02T00:00:00+08:00",
+		"target":          "example.com",
+		"generated_at":    "2026-10-02T00:00:00+08:00",
 		"reverse_domains": []string{"example.com"},
 		"subdomains":      []string{"a.example.com", "b.example.com"},
 		"subdomains_live": []map[string]any{
@@ -160,8 +160,8 @@ func TestParityRenderMD(t *testing.T) {
 		"fingerprint": []map[string]any{{"name": "Swagger UI", "type": "api"}},
 		"paths": map[string]any{
 			"base": "https://example.com", "baseline": map[string]any{"kind": "soft404"},
-			"alive":  []map[string]any{{"path": "/.env", "status": 200, "size": 63, "verified": true}},
-			"notes":  []any{},
+			"alive": []map[string]any{{"path": "/.env", "status": 200, "size": 63, "verified": true}},
+			"notes": []any{},
 		},
 		"api": map[string]any{
 			"base": "https://example.com", "probed": 27, "live_hits": 1, "soft404_filtered": 3,
@@ -171,10 +171,10 @@ func TestParityRenderMD(t *testing.T) {
 		},
 		"jsintel": map[string]any{
 			"base": "https://example.com", "page_status": 200,
-			"scripts":    map[string]any{"external": 3, "inline": 1, "downloaded": 3, "failed": 0},
-			"endpoints":  []string{"/api/v1/users"},
+			"scripts":        map[string]any{"external": 3, "inline": 1, "downloaded": 3, "failed": 0},
+			"endpoints":      []string{"/api/v1/users"},
 			"endpoints_full": []string{"https://example.com/api/v1/users"},
-			"sensitive": map[string]any{"secret": "masked"},
+			"sensitive":      map[string]any{"secret": "masked"},
 			"domains": map[string]any{"subdomains": []string{"api.example.com"},
 				"thirdparty": []string{"cdn.third.cn"}, "internal_ips": []string{"10.0.0.5"}},
 		},

@@ -30,7 +30,7 @@ var (
 // fetch 故不受影响）。校验失败走「异常降级」分支：0 次重试直接切下一通道，
 // 对齐 Python check_http_url 抛 ValueError 被 run_subdomain 捕获的语义。
 var (
-	retrySleep   = time.Sleep
+	retrySleep    = time.Sleep
 	SubfinderFind = toolrun.FindSubfinder
 	SubfinderRun  = func(path, domain string) ([]string, error) { return toolrun.RunSubfinder(path, domain, 0) }
 	checkBoundary = func(rawURL string) (string, error) { return netutil.CheckHTTPURL(rawURL, false) }
@@ -143,6 +143,15 @@ func collectNames(n int, get func(int) []string, domain string) []string {
 // （即：OneForAll 无结果时 crt.sh 链照走，subfinder 只做并集补充）。
 // 源名与计数打印对齐，结果去重排序后 SafeWrite 到 subdomains.txt。
 func Run(domain, out string) []string {
+	// 入口污点闸（污点门禁可建模的 sanitizer 形态）：CLI/上层传入的 domain
+	// 进入任何通道前做形状白名单——非空、≤253、无路径分隔符/悬浮点组件/
+	// 控制字符。非法输入直接返回空（各通道内的同名拦截为第二道纵深）。
+	if d := strings.TrimSpace(domain); d == "" || len(d) > 253 ||
+		strings.ContainsAny(d, `/\`) || strings.Contains(d, "..") ||
+		strings.ContainsFunc(d, func(r rune) bool { return r <= 0x20 || r == 0x7f }) {
+		fmt.Printf("[!] 非法域名（形状校验未过，全部通道拦截）: %q\n", domain)
+		return nil
+	}
 	seen := map[string]bool{}
 	var subs []string
 	add := func(list []string) {

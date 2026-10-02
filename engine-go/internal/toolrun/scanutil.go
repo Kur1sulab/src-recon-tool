@@ -2,11 +2,15 @@ package toolrun
 
 import (
 	"bufio"
+	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	subproc "os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -50,8 +54,38 @@ func RunSubfinder(path, domain string, timeout time.Duration) ([]string, error) 
 	_ = tmp.Close()
 	defer os.Remove(tmpName)
 
-	cmd := subproc.Command(path, "-d", domain, "-oJ", tmpName)
-	out, err := cmd.CombinedOutput()
+	// CommandContext 真正消费 timeout（与 oneforall.go 一致）：
+	// subfinder 卡死不得无限阻塞子域收集流程
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	cmd := subproc.CommandContext(ctx, path, "-d", domain, "-oJ", tmpName)
+	cmd.WaitDelay = time.Second
+	// fix2 P3（对抗 D 项实测 3.6s 才返回）：Windows 下 stub 常是 cmd 包壳，
+	// ping 等孙进程继承输出管道——只杀直接子进程时孤儿孙进程会把管道拖到
+	// 自行退出（实测 3.5s+）。ctx 到期用 taskkill /T /F 杀整棵树，非 Windows
+	// 依赖 ctx + WaitDelay。
+	var buf bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &buf, &buf
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	treeDone := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			if runtime.GOOS == "windows" && cmd.Process != nil {
+				_ = subproc.Command("taskkill", "/T", "/F", "/PID",
+					strconv.Itoa(cmd.Process.Pid)).Run()
+			}
+			if cmd.Process != nil {
+				_ = cmd.Process.Kill()
+			}
+		case <-treeDone:
+		}
+	}()
+	waitErr := cmd.Wait()
+	close(treeDone)
+	out, err := buf.Bytes(), waitErr
 	if err != nil {
 		// subfinder 对无结果也可能非零退出：只要临时文件有内容就继续解析
 		if st, statErr := os.Stat(tmpName); statErr != nil || st.Size() == 0 {

@@ -3,6 +3,7 @@ package netutil
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -41,6 +42,20 @@ type BaselineResult struct {
 	Ctype    string `json:"ctype"`
 	FinalURL string `json:"final_url"`
 	Samples  int    `json:"samples"`
+}
+
+// MarshalJSON 落盘形态对齐 Python（fix2 audit low#3②）：探针 <2 次成功时
+// Python 只返回 {"kind":"unknown","samples":N} 两键（netutil.py:197），
+// Go 零值结构体此前恒序列化 7 键。normal/soft404/… 分支仍全键输出。
+func (b BaselineResult) MarshalJSON() ([]byte, error) {
+	if b.Kind == "unknown" {
+		return json.Marshal(struct {
+			Kind    string `json:"kind"`
+			Samples int    `json:"samples"`
+		}{b.Kind, b.Samples})
+	}
+	type alias BaselineResult
+	return json.Marshal(alias(b))
 }
 
 // Baseline 取两个随机不存在路径的响应判断 catch-all 行为，对齐 netutil.py:177-199：

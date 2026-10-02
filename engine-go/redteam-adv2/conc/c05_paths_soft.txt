@@ -1,0 +1,4 @@
+[*] 敏感路径探测: http://127.0.0.1:18081/soft404（19 条字典）
+[*] 站点基线: soft404（随机路径 → 200, 96B）
+[!] 存在 catch-all（soft404），形态一致的响应不计入存活
+[+] 敏感路径探测完成（存活 0 个，另有 19 条被拒绝/跳转/基线过滤）-> C:\Users\18270\src-recon-tool\engine-go\redteam-adv2\out\http_127.0.0.1_18081_soft404\paths.json

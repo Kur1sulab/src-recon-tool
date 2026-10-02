@@ -50,7 +50,7 @@ func ParseFofaResults(results [][]any) []string {
 }
 
 // ParseHunterArr 解析 Hunter data.arr（[{domain,ip,port,protocol},...]）→ 同格式行。
-// 对齐 asset.py:57-58（缺键取 ""，Python a.get('domain','')）。
+// 对齐 asset.py:57-58（缺键取空串，等价 Python a.get 的默认值语义）。
 func ParseHunterArr(arr []map[string]any) []string {
 	out := make([]string, 0, len(arr))
 	for _, a := range arr {
@@ -77,8 +77,8 @@ func fofaFetch(u string) []string {
 		return nil
 	}
 	var data struct {
-		Error   bool   `json:"error"`
-		Errmsg  string `json:"errmsg"`
+		Error   bool    `json:"error"`
+		Errmsg  string  `json:"errmsg"`
 		Results [][]any `json:"results"`
 	}
 	if err := json.Unmarshal([]byte(r.Body), &data); err != nil {

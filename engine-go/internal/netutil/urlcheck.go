@@ -108,3 +108,21 @@ func CheckHTTPURL(rawURL string, allowPrivate bool) (string, error) {
 	}
 	return u, nil
 }
+
+// HopPolicy 返回与入口 URL 授权语义一致的逐跳重定向校验回调（fix2 P1）：
+//   - 入口是公网可解析目标（CheckHTTPURL 默认边界校验通过）→ 逐跳拒绝
+//     内网/环回/保留/链路本地落点——堵「授权公网目标的 302 把探测流量
+//     （可能含凭据 query）打进未授权内网段/云元数据地址」；
+//   - 入口本身私网/环回（授权内网靶标，本工具的合法场景）或无法解析 →
+//     逐跳只做协议白名单 + 可解析性校验，私网落点放行——与
+//     fingerprint/PickBase 现行 allowPrivate=true 语义一致。
+//
+// 注意：本回调只约束重定向落点，入口自身的边界策略由调用方决定。
+func HopPolicy(entryURL string) func(string) error {
+	_, entryErr := CheckHTTPURL(entryURL, false)
+	allowPrivate := entryErr != nil
+	return func(next string) error {
+		_, err := CheckHTTPURL(next, allowPrivate)
+		return err
+	}
+}

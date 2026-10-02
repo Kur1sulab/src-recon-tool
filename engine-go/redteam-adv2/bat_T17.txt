@@ -1,0 +1,4 @@
+[*] API 文档/未授权探测: http://127.0.0.1:18081/real?next=http://169.254.169.254/（27 个候选端点）
+[*] 站点基线: normal（随机路径 → 404, 29B, -）
+[*] 探测完成：未发现暴露的 API 文档/运维端点（catch-all 过滤掉 0 条疑似）
+    -> C:\Users\18270\src-recon-tool\engine-go\redteam-adv2\out\http_127.0.0.1_18081_real_next_http_169.254.169.254_\api_unauth.json

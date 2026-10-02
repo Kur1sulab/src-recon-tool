@@ -85,6 +85,14 @@ def make_outdir(target: str) -> str:
     name = name.strip(". ")
     if name in ("", ".."):
         name = "unknown"
+    # fix2 P3（与 Go MakeOutdir/DefuseWindowsReservedStem 同步）：Windows 保留
+    # 设备名主干补 _（con/nul/aux/com1-9/lpt1-9，任意扩展名）——实测 `report -t
+    # CON` 类目标会建出设备名目录，与文件层 safe_filename 的加固不一致。
+    stem, dot, ext = name.partition(".")
+    if stem.lower() in {"con", "prn", "aux", "nul",
+                        *[f"com{i}" for i in range(1, 10)],
+                        *[f"lpt{i}" for i in range(1, 10)]}:
+        name = stem + "_" + dot + ext
     out = os.path.join("out", name)
     os.makedirs(out, exist_ok=True)
     return out

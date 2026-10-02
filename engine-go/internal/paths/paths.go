@@ -24,20 +24,21 @@ var PathsList = []string{
 // shrunk/verdict/verified/recheck）。verdict/verified/recheck 为动态键：未产生时
 // omitempty 不输出（对齐 Python dict 只在有值时才有该键）；shrunk 恒为 null。
 type Row struct {
-	Path     string           `json:"path"`
-	Status   int              `json:"status"`
-	Size     int              `json:"size"`
-	Ctype    string           `json:"ctype"`
-	FinalURL string           `json:"final_url"`
-	Shrunk   *string          `json:"shrunk"`
-	Verdict  string           `json:"verdict,omitempty"`
-	Verified *bool            `json:"verified,omitempty"`
+	Path     string            `json:"path"`
+	Status   int               `json:"status"`
+	Size     int               `json:"size"`
+	Ctype    string            `json:"ctype"`
+	FinalURL string            `json:"final_url"`
+	Shrunk   *string           `json:"shrunk"`
+	Verdict  string            `json:"verdict,omitempty"`
+	Verified *bool             `json:"verified,omitempty"`
 	Recheck  []netutil.Attempt `json:"recheck,omitempty"`
 }
 
 // RunPaths 敏感路径探测主流程，对齐 paths.py:29-67。返回存活行。
 func RunPaths(url, out string) []Row {
 	base := strings.TrimRight(url, "/")
+	hop := netutil.HopPolicy(base) // fix2 P1：逐跳校验（策略由入口公网/私网推导）
 	bl := netutil.Baseline(base, 0)
 	fmt.Printf("[*] 敏感路径探测: %s（%d 条字典）\n", url, len(PathsList))
 	fmt.Printf("[*] 站点基线: %s（随机路径 → %d, %dB）\n", bl.Kind, bl.Status, bl.Size)
@@ -47,7 +48,7 @@ func RunPaths(url, out string) []Row {
 	}
 	var alive, notes []Row
 	for _, p := range PathsList {
-		r := netutil.Fetch(base+p, netutil.FetchOpt{Follow: true})
+		r := netutil.Fetch(base+p, netutil.FetchOpt{Follow: true, HopCheck: hop})
 		row := Row{
 			Path: p, Status: r.Status, Size: r.Size, Ctype: r.Ctype,
 			FinalURL: r.FinalURL,
