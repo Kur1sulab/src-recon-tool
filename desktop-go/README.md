@@ -36,7 +36,8 @@ recon-desktop.exe --port 8123
 | GET | `/api/scans` | 任务列表 |
 | GET | `/api/scans/{id}` | 详情：状态/退出码/进度事件/产物清单/日志尾 |
 | POST | `/api/scans/{id}/stop` | 停止（taskkill /T /F 杀进程树） |
-| GET | `/api/scans/{id}/evidence` | 证据包 zip：优先现成 evidence-*.zip，否则现打聚合 |
+| DELETE | `/api/scans/{id}` | 删除任务记录与数据文件；running/created 拒删 409；`out/` 产物是用户资产，保留在盘 |
+| GET | `/api/scans/{id}/evidence` | 证据包 zip：优先现成 evidence-*.zip（先审计条目名：含 `../` 段、前导 `/`、盘符、反斜杠的包一律弃用并现打重打），否则现打聚合；聚合时超单文件上限（64MB）的文件整只跳过并在包内 `_跳过的大文件.txt` 留痕，绝不写截断字节 |
 
 ### 本机边界（Host/Origin 校验）
 
@@ -93,3 +94,12 @@ desktop-go/
 `src/recon.py --progress-file <jsonl>` 逐行落：
 `{"ts":float,"event":"pipeline_start|start|done|fail|pipeline_end","module":str,"detail":str}`
 Go 侧游标增量读取；进程退出但没等到 `pipeline_end` 时兜底补一条 fail，界面不挂空。
+
+### 证据包安全须知（fix1）
+
+- 服务端只打包、不解包；现成 zip 下发前做条目名审计（`../` / 前导 `/` / 盘符 /
+  反斜杠任一命中即弃用重打），但历史遗留的可疑 zip 仍可能经其他渠道流出——
+  **解压请用带穿越防护的工具**（如 `7z x` 而非盲目解压），不要在特权目录解包。
+- `args` 里出现目标旗标（-u/--url/-t/--target/-d/--domain/-i/--ip）或其 argparse
+  前缀缩写（如 `--ur`/`--dom`）一律 400：目标只能由壳按白名单校验后注入
+  （argparse 重复选项 last-wins，防 args 覆盖受控目标打名单外资产）。
