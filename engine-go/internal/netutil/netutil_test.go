@@ -214,8 +214,10 @@ print(json.dumps(out))
 	if err := jsonUnmarshalInto(out, &py); err != nil {
 		t.Fatalf("python 探针输出解析失败: %v\n%s", err, out)
 	}
-	// 版本口径（见函数注释）：python <3.9 跳过版本差异段对照
-	skipDiff := minor < 9
+	// 版本口径（见函数注释）：python <3.11 跳过版本差异段对照——私网表安全回移
+	// 随 3.9.14/3.10.7/3.11.0 落地，runner 预装的 3.9.13/3.10.0-6 仍是旧口径；
+	// 保守按 <3.11 全跳（仅少验 192.0.0.8 / 2002::1 两段极端保留地址）。
+	skipDiff := major < 3 || minor < 11
 	for _, s := range ips {
 		if skipDiff && versionDiffSegments[s] {
 			t.Logf("跳过版本差异段 %s（python %s 口径与 Go 3.13 口径不同，见 PARITY.md ④）", s, pyVer)
