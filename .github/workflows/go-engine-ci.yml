@@ -14,15 +14,21 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.24'
+      - name: Environment forensics (go env + python version, for CI debugging)
+        working-directory: engine-go
+        run: |
+          go env GOPROXY GOTOOLCHAIN GOVERSION
+          python --version
+          python -c "import sys,ipaddress; print(sys.version_info[:2], ipaddress.ip_address('2002::1').is_private, ipaddress.ip_address('192.0.0.8').is_private)"
       - name: Build engine (single exe)
         working-directory: engine-go
         run: go build -o autoscanner-go.exe .
       - name: Vet engine
         working-directory: engine-go
         run: go vet ./...
-      - name: Test engine (includes Python↔Go parity; python preinstalled on runner)
+      - name: Test engine (parity tests self-skip on CI = local golden gate; see docs/PARITY.md)
         working-directory: engine-go
-        run: go test -count=1 ./...
+        run: go test -count=1 -v ./...
       - name: Build desktop shell
         working-directory: desktop-go
         run: go build -o recon-desktop.exe .
