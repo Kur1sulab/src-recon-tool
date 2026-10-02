@@ -1,15 +1,12 @@
 /* ============================================================
  * views/evidence.js — ④ 证据包：任务选择 + 产物清单 + 导出按钮
- * 导出走 GET /api/scans/{id}/evidence（zip 流 → Blob 下载）
+ * 导出走 GET /api/scans/{id}/evidence（zip 流 → Blob 下载），
+ * 下载逻辑复用 App.downloadEvidenceZip（任务列表页同一入口）。
  * ============================================================ */
 (function () {
   "use strict";
 
   var currentId = null;
-
-  function metaRow(k, vNode) {
-    return [App.h("div", { class: "k", text: k }), App.h("div", { class: "v" }, vNode)];
-  }
 
   function renderMeta(s) {
     var grid = document.getElementById("evMeta");
@@ -49,9 +46,14 @@
     box.classList.remove("hidden");
   }
 
+  function setExportEnabled(on) {
+    document.getElementById("evExport").disabled = !on;
+  }
+
   function loadTask(id) {
     showError("");
     document.getElementById("evPathNote").textContent = "";
+    setExportEnabled(!!id);
     if (!id) {
       renderMeta(null);
       renderArtifacts([]);
@@ -66,30 +68,19 @@
     }).catch(function (err) {
       renderMeta(null);
       renderArtifacts([]);
+      setExportEnabled(false);
       showError(err && err.message ? err.message : "任务信息加载失败");
     });
   }
 
   function exportZip() {
     if (!currentId) { showError("请先选择一个任务。"); return; }
-    var btn = document.getElementById("evExport");
-    btn.disabled = true;
-    API.downloadEvidence(currentId).then(function (blob) {
-      var name = "evidence-" + App.shortId(currentId) + ".zip";
-      var url = URL.createObjectURL(blob);
-      var a = document.createElement("a");
-      a.href = url;
-      a.download = name;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
-      App.toast("证据包已导出：" + name, "ok");
-    }).catch(function (err) {
-      showError(err && err.message ? err.message : "导出失败");
-    }).then(function () {
-      btn.disabled = false;
-    });
+    setExportEnabled(false);
+    App.downloadEvidenceZip(currentId)
+      .catch(function (err) {
+        showError(err && err.message ? err.message : "导出失败");
+      })
+      .then(function () { setExportEnabled(true); });
   }
 
   function fillSelect(selectedId) {
@@ -116,6 +107,7 @@
   App.registerView("evidence", {
     enter: function (id) {
       currentId = id ? decodeURIComponent(id) : null;
+      setExportEnabled(!!currentId);
       document.getElementById("evTaskSelect").onchange = function () {
         currentId = this.value || null;
         loadTask(currentId);
@@ -126,10 +118,8 @@
         if (!currentId && sel.value) {
           // 未指定任务时默认选最新一条
           currentId = sel.value;
-          loadTask(currentId);
-        } else {
-          loadTask(currentId);
         }
+        loadTask(currentId);
       });
     }
   });

@@ -1,6 +1,7 @@
 /* ============================================================
  * views/settings.js — ⑤ 设置：运行环境自检（GET /api/env）+ 白名单只读展示
  * python 路径由环境变量 RECON_PYTHON 或 PATH 决定，本页只读。
+ * 错态区分：env 拉取失败（离线）≠ Python 未安装，两态分开呈现。
  * ============================================================ */
 (function () {
   "use strict";
@@ -14,6 +15,25 @@
     return App.h("span", { class: "chip " + (ok ? "chip-lv-ok" : "chip-lv-bad") },
       App.h("span", { class: "dot" }),
       ok ? okText : badText);
+  }
+
+  function renderError(err) {
+    var grid = document.getElementById("envGrid");
+    grid.textContent = "";
+    var offline = err && err.status === 0;
+    var rows = [
+      kv("环境自检", flagChip(false, "", offline ? "离线" : "失败")),
+      kv("说明", App.h("span", {
+        text: offline
+          ? "无法连接本地服务（127.0.0.1），环境信息不可用；恢复后点「运行自检」重试。"
+          : "环境信息获取失败：" + (err && err.message ? err.message : "未知错误") + "，可点「运行自检」重试。"
+      }))
+    ];
+    rows.forEach(function (r) { grid.appendChild(r[0]); grid.appendChild(r[1]); });
+
+    var wrapEl = document.getElementById("envWhitelistWrap");
+    wrapEl.textContent = "";
+    wrapEl.appendChild(App.h("div", { class: "empty-hint", text: "白名单不可用（环境信息未获取）。" }));
   }
 
   function render(env) {
@@ -68,7 +88,7 @@
       render(env);
       if (notify) App.toast("自检完成", "ok");
     }).catch(function (err) {
-      render(null);
+      renderError(err);
       if (notify) App.toast(err && err.message ? err.message : "自检失败", "err");
     });
   }

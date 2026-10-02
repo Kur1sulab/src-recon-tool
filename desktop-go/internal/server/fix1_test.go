@@ -281,7 +281,8 @@ func TestMethodNotAllowedOnKnownAPIShape(t *testing.T) {
 		{"GET", "/api/scans/whatever/stop"},
 		{"DELETE", "/api/scans"},
 		{"PUT", "/api/env"},
-		{"DELETE", "/api/scans/whatever"},
+		// fix2 起 DELETE /api/scans/{id} 是正式接口（未知任务 404），
+		// 从 405 集合移除，见下方补充断言。
 	}
 	for _, c := range cases {
 		rec := do(t, h, c[0], c[1], nil)
@@ -291,6 +292,10 @@ func TestMethodNotAllowedOnKnownAPIShape(t *testing.T) {
 		if rec.Header().Get("Allow") == "" {
 			t.Fatalf("%s %s 应带 Allow 头", c[0], c[1])
 		}
+	}
+	// fix2 契约：DELETE 已知形状 → 走删除语义（未知任务 404，非 405）
+	if rec := do(t, h, "DELETE", "/api/scans/whatever", nil); rec.Code != 404 {
+		t.Fatalf("DELETE 未知任务应 404, 得 %d", rec.Code)
 	}
 	if rec := do(t, h, "GET", "/api/unknown", nil); rec.Code != 404 {
 		t.Fatalf("未知 API 仍应 404, 得 %d", rec.Code)

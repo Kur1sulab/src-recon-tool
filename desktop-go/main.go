@@ -126,6 +126,9 @@ func main() {
 		return
 	}
 
+	// A2 拖拽最小尺寸：960x640 物理像素（与 window.json 记忆值下限一致）
+	enforceMinSize(w.Window(), 960, 640)
+
 	// 关窗确认：有任务在跑时前端 beforeunload 弹原生确认（壳注入脚本，不改前端文件）
 	w.Bind("confirmExit", func() bool {
 		return len(st.RunningIDs()) == 0

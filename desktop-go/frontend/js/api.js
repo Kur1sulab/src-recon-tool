@@ -3,9 +3,10 @@
  * 契约：
  *   GET  /api/env                → {python:{found,path,version,deps_ok},out_dir,mock_reachable,whitelist}
  *   POST /api/scans              → 403 或 {id,status:'created'}
- *   GET  /api/scans              → {scans:[...]}
- *   GET  /api/scans/{id}         → {id,target,cmd,status,exit_code,progress[],artifacts[],log_tail,evidence_path}
+ *   GET  /api/scans              → {scans:[{id,target,cmd,args,status,created_at,finished_at}]}
+ *   GET  /api/scans/{id}         → {id,target,cmd,args,status,exit_code,progress[],artifacts[],log_tail,evidence_path}
  *   POST /api/scans/{id}/stop    → {ok}
+ *   DELETE /api/scans/{id}       → {ok}（running/created 拒删 → 409）
  *   GET  /api/scans/{id}/evidence→ zip 流
  * 全局对象：API
  * ============================================================ */
@@ -106,6 +107,11 @@
     /** POST /api/scans/{id}/stop → {ok} */
     stopScan: function (id) {
       return request("/api/scans/" + encodeURIComponent(id) + "/stop", { method: "POST", body: {} });
+    },
+
+    /** DELETE /api/scans/{id} → {ok}；running/created 服务端拒删（409） */
+    deleteScan: function (id) {
+      return request("/api/scans/" + encodeURIComponent(id), { method: "DELETE" });
     },
 
     /** GET /api/scans/{id}/evidence → Blob（zip） */

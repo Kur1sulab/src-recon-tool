@@ -177,6 +177,67 @@
     return { rows: rows, pipeline: pipeline };
   };
 
+  /* ---------- 会话内存（刷新即失，不用 localStorage） ---------- */
+
+  // 新建页目标输入历史：↑ 回填用；App.rememberTarget 在成功提交时记一笔
+  App.targetHistory = [];
+  App.rememberTarget = function (t) {
+    var v = String(t || "").trim();
+    if (!v) return;
+    App.targetHistory = App.targetHistory.filter(function (x) { return x !== v; });
+    App.targetHistory.unshift(v);
+    if (App.targetHistory.length > 30) App.targetHistory.length = 30;
+  };
+
+  // 「重开」跨页预填槽：tasks.js 写入，new.js 读取后清空
+  App.reopenPrefill = null;
+
+  /* ---------- 客户端分页 ---------- */
+
+  // 纯函数：total 行、当前 page（0 基）、每页 per → 夹紧后的分页信息
+  App.paginate = function (total, page, per) {
+    var pages = Math.max(1, Math.ceil((total || 0) / per));
+    var p = Math.min(Math.max(0, Math.floor(page || 0)), pages - 1);
+    return { page: p, pages: pages, total: total || 0, offset: p * per, limit: per };
+  };
+
+  // 分页器：上一页/下一页 + 页码指示；单页时不渲染
+  App.renderPager = function (container, info, onPage) {
+    container.textContent = "";
+    if (!info || info.pages <= 1) return;
+    container.appendChild(App.h("button", {
+      class: "btn", type: "button", text: "上一页",
+      disabled: info.page <= 0,
+      onclick: function () { onPage(info.page - 1); }
+    }));
+    container.appendChild(App.h("span", {
+      class: "pager-info",
+      text: "第 " + (info.page + 1) + " / " + info.pages + " 页 · 共 " + info.total + " 行"
+    }));
+    container.appendChild(App.h("button", {
+      class: "btn", type: "button", text: "下一页",
+      disabled: info.page >= info.pages - 1,
+      onclick: function () { onPage(info.page + 1); }
+    }));
+  };
+
+  /* ---------- 证据包下载（证据包页与任务列表共用） ---------- */
+
+  App.downloadEvidenceZip = function (id) {
+    return API.downloadEvidence(id).then(function (blob) {
+      var name = "evidence-" + App.shortId(id) + ".zip";
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+      App.toast("证据包已导出：" + name, "ok");
+    });
+  };
+
   /* ---------- 操作反馈条 ---------- */
 
   var toastTimer = null;

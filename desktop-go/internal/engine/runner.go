@@ -202,6 +202,14 @@ func (r *Runner) Start(id, cmd, target string, extra []string) error {
 		logFile.Close()
 		return fmt.Errorf("任务已在运行: %s", id)
 	}
+	// created 窗口/竞态：hStop 可能抢在注册进程前到达（Stop 对无进程任务
+	// 也插 stopping 旗），此处自检放弃，不得照常起进程把停止吞掉。
+	if r.stopping[id] {
+		delete(r.stopping, id)
+		r.mu.Unlock()
+		logFile.Close()
+		return fmt.Errorf("任务已请求停止: %s", id)
+	}
 	if err := c.Start(); err != nil {
 		r.mu.Unlock()
 		logFile.Close()
@@ -288,9 +296,9 @@ func (r *Runner) monitor(id string, c *exec.Cmd, progressPath string, done <-cha
 func (r *Runner) Stop(id string) error {
 	r.mu.Lock()
 	c, ok := r.procs[id]
-	if ok {
-		r.stopping[id] = true
-	}
+	// 无进程也插旗：并发在途的 Start（尚未注册进程）自检后放弃，
+	// 否则 hStop 已落 stopped 而 Start 照常把任务跑完。
+	r.stopping[id] = true
 	r.mu.Unlock()
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrNotRunning, id)

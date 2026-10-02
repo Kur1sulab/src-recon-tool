@@ -21,7 +21,9 @@ import (
 func newTestHandler(t *testing.T) (http.Handler, *store.Store, string) {
 	t.Helper()
 	repoRoot := t.TempDir()
-	dataDir := t.TempDir()
+	// 仓库根与数据目录合一（生产环境分别是仓库与 %LOCALAPPDATA%，但代码不要求二者不同；
+	// 测试共用一棵临时树便于文件级断言）。
+	dataDir := repoRoot
 	p := filepath.Join(repoRoot, "src", "recon.py")
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		t.Fatal(err)

@@ -73,6 +73,7 @@
 
       <!-- ① 任务列表 -->
       <section class="view" id="view-tasks" hidden>
+        <div class="stat-row" id="taskStats" aria-label="任务统计"></div>
         <div class="panel">
           <div class="panel-head">
             <div class="panel-title">扫描任务</div>
@@ -152,6 +153,7 @@
           <div class="panel">
             <div class="panel-head"><div class="panel-title">模块进度</div></div>
             <div class="table-wrap" id="detailProgressWrap"></div>
+            <div class="pager" id="detailProgressPager"></div>
             <div class="pipeline-note" id="detailPipelineNote"></div>
           </div>
 
@@ -161,6 +163,7 @@
               <div class="panel-actions"><a class="btn" id="detailEvidenceLink" href="#/evidence">前往证据包</a></div>
             </div>
             <div class="table-wrap" id="detailArtifactsWrap"></div>
+            <div class="pager" id="detailArtifactsPager"></div>
           </div>
 
           <div class="panel">

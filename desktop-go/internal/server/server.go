@@ -56,6 +56,7 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/scans/{id}", s.hDetail)
 	mux.HandleFunc("POST /api/scans/{id}/stop", s.hStop)
 	mux.HandleFunc("GET /api/scans/{id}/evidence", s.hEvidence)
+	mux.HandleFunc("DELETE /api/scans/{id}", s.hDelete)
 	mux.HandleFunc("/", s.hStatic)
 	return noStore(localGuard(mux))
 }
@@ -123,6 +124,12 @@ func (s storeSink) AppendProgress(id string, evs []store.ProgressEvent) {
 
 func (s storeSink) SetStatus(id, status string, exitCode *int) {
 	_ = s.st.Update(id, func(t *store.Task) {
+		// 终态不回退：hStop 幂等分支/崩溃对账已落终态后，monitor 收尾
+		// （wasStopping 读取与落终态之间无锁）不得把 stopped 改写成 fail
+		switch t.Status {
+		case store.StatusDone, store.StatusFail, store.StatusStopped:
+			return
+		}
 		t.Status = status
 		t.ExitCode = exitCode
 		switch status {
@@ -250,6 +257,11 @@ func (s *server) hCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.deps.Runner.Start(id, req.Cmd, target, extra); err != nil {
 		_ = s.deps.Store.Update(id, func(t *store.Task) {
+			// 终态不回退：hStop 竞态（Start 放弃启动）已落 stopped 时不得改写成 fail
+			switch t.Status {
+			case store.StatusDone, store.StatusFail, store.StatusStopped:
+				return
+			}
 			t.Status = store.StatusFail
 			t.FinishedAt = float64(time.Now().UnixMilli()) / 1e3
 			t.Progress = append(t.Progress, store.ProgressEvent{
@@ -380,11 +392,29 @@ var outDirSanitizer = strings.NewReplacer(
 	"<", "_", ">", "_", "|", "_", "*", "_",
 )
 
-// outDirFor 目标 → 产物目录（替换规则与 Python make_outdir 完全一致）。
+// winReservedStems Windows 保留设备名主干（与引擎 netutil.DefuseWindowsReservedStem
+// 同集——跨 Go module 无法复用，此处按值同步；三方任一改动须四处同改）。
+var winReservedStems = map[string]bool{
+	"con": true, "prn": true, "aux": true, "nul": true,
+	"com1": true, "com2": true, "com3": true, "com4": true, "com5": true,
+	"com6": true, "com7": true, "com8": true, "com9": true,
+	"lpt1": true, "lpt2": true, "lpt3": true, "lpt4": true, "lpt5": true,
+	"lpt6": true, "lpt7": true, "lpt8": true, "lpt9": true,
+}
+
+// outDirFor 目标 → 产物目录（替换规则与 Python make_outdir 完全一致，
+// fix2 P3：含设备名主干补 _，否则壳在 out/ 下找不到引擎产物）。
 func outDirFor(repoRoot, target string) string {
 	name := strings.Trim(outDirSanitizer.Replace(target), ". ")
 	if name == "" || name == ".." {
 		name = "unknown"
+	}
+	stem, ext := name, ""
+	if i := strings.Index(name, "."); i >= 0 {
+		stem, ext = name[:i], name[i:]
+	}
+	if winReservedStems[strings.ToLower(stem)] {
+		name = stem + "_" + ext
 	}
 	return filepath.Join(repoRoot, "out", name)
 }
@@ -452,9 +482,11 @@ func (s *server) hStop(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "任务不存在或已被清理")
 		return
 	}
-	if task.Status == store.StatusRunning {
+	if task.Status == store.StatusRunning || task.Status == store.StatusCreated {
 		// 进程表里已无此 ID（崩溃残留/恰好退出）→ 按幂等成功处理并落终态，
 		// 不再 409——否则重启后僵尸 running 任务永远无法清除。
+		// created 同样受理：前端对 created/running 都渲染停止按钮，
+		// 静默吞掉会让用户看到"已提交"而任务照常跑完。
 		if err := s.deps.Runner.Stop(id); err != nil && !errors.Is(err, engine.ErrNotRunning) {
 			writeHTTPErr(w, 409, "停止失败: %v", err)
 			return
@@ -466,6 +498,27 @@ func (s *server) hStop(w http.ResponseWriter, r *http.Request) {
 				t.FinishedAt = float64(time.Now().UnixMilli()) / 1e3
 			}
 		})
+	}
+	writeJSON(w, 200, map[string]bool{"ok": true})
+}
+
+// ── DELETE /api/scans/{id} ──
+//
+// 删除任务记录与数据目录文件；out/ 产物保留在盘（用户资产，前端确认文案明示）。
+
+func (s *server) hDelete(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if _, ok := s.deps.Store.Get(id); !ok {
+		writeErr(w, 404, "任务不存在或已被清理")
+		return
+	}
+	if err := s.deps.Store.Delete(id); err != nil {
+		if errors.Is(err, store.ErrTaskActive) {
+			writeErr(w, 409, "任务仍在运行，请先停止再删除")
+			return
+		}
+		writeHTTPErr(w, 500, "删除失败: %v", err)
+		return
 	}
 	writeJSON(w, 200, map[string]bool{"ok": true})
 }
@@ -516,6 +569,14 @@ func (s *server) hEvidence(w http.ResponseWriter, r *http.Request) {
 		if rerr != nil {
 			return nil
 		}
+		// P3：产物目录里的任意 zip（含被 evidenceZipSafe 审计弃用的毒 zip
+		// 本体）一律不内嵌进新包——内嵌压缩包等于把其中未审计的条目原样
+		// 转交给最终解压工具。如需取用请直接到产物目录拿原文件。
+		if strings.EqualFold(filepath.Ext(rel), ".zip") {
+			skipped = append(skipped, fmt.Sprintf("%s（压缩包不做内嵌重打包，未写入本压缩包）",
+				filepath.ToSlash(rel)))
+			return nil
+		}
 		// 超限文件整只跳过并留痕，绝不写截断字节——截断条目是损坏的
 		// 证据，对以取证为名的导出是完整性问题。
 		if info, serr := d.Info(); serr == nil && info.Size() > maxEvidenceFile {
@@ -538,7 +599,7 @@ func (s *server) hEvidence(w http.ResponseWriter, r *http.Request) {
 	})
 	if len(skipped) > 0 { // 跳过清单随包留痕，导出者可感知
 		if fw, zerr := zw.Create("_跳过的大文件.txt"); zerr == nil {
-			_, _ = io.WriteString(fw, "以下文件超出单文件打包上限，未写入本压缩包（可到产物目录直接取原文件）：\n"+
+			_, _ = io.WriteString(fw, "以下文件未写入本压缩包（可到产物目录直接取原文件）：\n"+
 				strings.Join(skipped, "\n")+"\n")
 		}
 	}

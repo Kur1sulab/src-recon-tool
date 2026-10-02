@@ -1,15 +1,21 @@
 /* ============================================================
  * views/detail.js — ③ 任务详情
  * 模块进度表（模块 / 状态 / 耗时 / 详情）+ 结果产物表 + 原始日志 tail
- * 800ms 轮询 GET /api/scans/{id}，终态后停止轮询
+ * 两表客户端分页：每页 50 行，上一页/下一页 + 页码指示（进度事件
+ * 服务端上限 store.MaxProgress=2000，分页保证长表可用）。
+ * 800ms 轮询 GET /api/scans/{id}，终态后停止轮询。
  * ============================================================ */
 (function () {
   "use strict";
 
+  var PAGE = 50;
   var poll = null;
   var currentId = null;
   var lastLogLen = -1;
   var pickerEl = null;
+  var everLoaded = false;
+  var pgProgress = 0;
+  var pgArtifacts = 0;
 
   function chip(status) {
     return App.h("span", { class: "chip", "data-s": status || "" },
@@ -55,10 +61,14 @@
       .setAttribute("href", "#/evidence/" + encodeURIComponent(s.id || ""));
   }
 
+  /* ---------- 模块进度表（分页） ---------- */
+
   function renderProgress(progress) {
     var wrapEl = document.getElementById("detailProgressWrap");
+    var pagerEl = document.getElementById("detailProgressPager");
     var note = document.getElementById("detailPipelineNote");
     wrapEl.textContent = "";
+    pagerEl.textContent = "";
     note.textContent = "";
 
     var paired = App.pairProgress(progress);
@@ -71,7 +81,12 @@
       wrapEl.appendChild(App.h("div", { class: "empty-hint", text: "该任务暂无模块级进度（单模块任务直接查看下方日志）。" }));
       return;
     }
-    var tbody = App.h("tbody", null, paired.rows.map(function (r) {
+
+    var info = App.paginate(paired.rows.length, pgProgress, PAGE);
+    pgProgress = info.page;
+    var slice = paired.rows.slice(info.offset, info.offset + info.limit);
+
+    var tbody = App.h("tbody", null, slice.map(function (r) {
       var statusText = r.status === "running" ? "运行中"
         : (r.status === "done" ? "完成"
           : (r.status === "fail" ? "失败" : String(r.status || "-")));
@@ -92,16 +107,25 @@
         App.h("th", { text: "状态" }),
         App.h("th", { text: "耗时" }),
         App.h("th", { text: "详情" }))), tbody));
+    App.renderPager(pagerEl, info, function (p) { pgProgress = p; refresh(); });
   }
+
+  /* ---------- 结果产物表（分页） ---------- */
 
   function renderArtifacts(artifacts) {
     var wrapEl = document.getElementById("detailArtifactsWrap");
+    var pagerEl = document.getElementById("detailArtifactsPager");
     wrapEl.textContent = "";
+    pagerEl.textContent = "";
     if (!artifacts || !artifacts.length) {
       wrapEl.appendChild(App.h("div", { class: "empty-hint", text: "暂无产物文件（任务运行中或模块未产出文件）。" }));
       return;
     }
-    var tbody = App.h("tbody", null, artifacts.map(function (a) {
+    var info = App.paginate(artifacts.length, pgArtifacts, PAGE);
+    pgArtifacts = info.page;
+    var slice = artifacts.slice(info.offset, info.offset + info.limit);
+
+    var tbody = App.h("tbody", null, slice.map(function (a) {
       return App.h("tr", null,
         App.h("td", { class: "mono", text: String(a.name || "-") }),
         App.h("td", { class: "num", text: App.fmtSize(a.size) }));
@@ -110,6 +134,7 @@
       App.h("tr", null,
         App.h("th", { text: "产物文件" }),
         App.h("th", { text: "大小" }))), tbody));
+    App.renderPager(pagerEl, info, function (p) { pgArtifacts = p; refresh(); });
   }
 
   function renderLog(logTail) {
@@ -125,9 +150,39 @@
     }
   }
 
+  /* ---------- 三态 ---------- */
+
+  function renderLoadState() {
+    document.getElementById("detailProgressWrap").textContent = "";
+    document.getElementById("detailArtifactsWrap").textContent = "";
+    document.getElementById("detailArtifactsWrap")
+      .appendChild(App.h("div", { class: "empty-hint", text: "正在加载任务详情…" }));
+    document.getElementById("detailLog").textContent = "（加载中…）";
+  }
+
+  function renderError(err) {
+    var wrapEl = document.getElementById("detailProgressWrap");
+    wrapEl.textContent = "";
+    var offline = err && err.status === 0;
+    var notFound = err && err.status === 404;
+    var text = notFound
+      ? "任务不存在或已被删除（可能刚在列表页删除）。"
+      : (offline
+        ? "离线：无法获取任务详情，本地服务恢复后将自动刷新。"
+        : "任务详情获取失败：" + (err && err.message ? err.message : "未知错误"));
+    wrapEl.appendChild(App.h("div", { class: "empty-hint" },
+      App.h("div", { text: text }),
+      App.h("a", { class: "btn", href: "#/tasks", text: "返回任务列表" }),
+      notFound ? null : App.h("button", {
+        class: "btn", type: "button", text: "重试",
+        onclick: function () { refresh().catch(function () { }); }
+      })));
+  }
+
   function refresh() {
     if (!currentId) return Promise.resolve(false);
     return API.getScan(currentId).then(function (s) {
+      everLoaded = true;
       renderMeta(s);
       renderProgress(s.progress || []);
       renderArtifacts(s.artifacts || []);
@@ -136,6 +191,8 @@
       return !terminal; // false → 轮询自动停止
     });
   }
+
+  /* ---------- 未选任务时的选择器 ---------- */
 
   function renderPicker() {
     showPicker(true);
@@ -176,11 +233,14 @@
     enter: function (id) {
       currentId = id ? decodeURIComponent(id) : null;
       lastLogLen = -1;
+      pgProgress = 0;
+      pgArtifacts = 0;
       if (!currentId) {
         renderPicker();
         return;
       }
       showPicker(false);
+      if (!everLoaded) renderLoadState();
       document.getElementById("detailRefresh").onclick = function () {
         refresh().catch(function () { });
       };
@@ -192,8 +252,17 @@
           App.toast(err && err.message ? err.message : "停止失败", "err");
         });
       };
-      refresh().catch(function () { });
-      poll = API.poll(refresh, 800);
+      refresh().catch(function (err) {
+        if (!everLoaded) renderError(err);
+      });
+      poll = API.poll(function () {
+        return refresh().catch(function (err) {
+          // 已加载过的任务中途出错：静默等下一次轮询；404（被删）则停轮询并呈现
+          if (err && err.status === 404) { renderError(err); return false; }
+          if (!everLoaded) renderError(err);
+          return true;
+        });
+      }, 800);
     },
     leave: function () {
       if (poll) { poll.stop(); poll = null; }

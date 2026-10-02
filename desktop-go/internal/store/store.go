@@ -24,6 +24,12 @@ const (
 // MaxProgress 单任务进度事件上限（防失控膨胀）。
 const MaxProgress = 2000
 
+// Delete 相关的可识别错误（server 层映射 HTTP 状态码）。
+var (
+	ErrNotFound   = errors.New("任务不存在")
+	ErrTaskActive = errors.New("任务仍在运行，不能删除")
+)
+
 // ProgressEvent 与 Python 侧 _emit 的事件契约一一对应：
 // {"ts":float,"event":str,"module":str,"detail":str}
 type ProgressEvent struct {
@@ -172,6 +178,33 @@ func (s *Store) RunningIDs() []string {
 		}
 	}
 	return out
+}
+
+// Delete 删除任务记录及其数据目录文件（progress/<id>.jsonl、logs/<id>.log）。
+// running/created 状态拒绝（ErrTaskActive → HTTP 409）；不存在的 id 返回 ErrNotFound → 404。
+// 仓库 out/<目标>/ 下的扫描产物是用户资产，不在删除范围。
+func (s *Store) Delete(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t, ok := s.tasks[id]
+	if !ok {
+		return ErrNotFound
+	}
+	if t.Status == StatusRunning || t.Status == StatusCreated {
+		return ErrTaskActive
+	}
+	delete(s.tasks, id)
+	if err := s.saveLocked(); err != nil {
+		s.tasks[id] = t // 落盘失败回滚内存，保持一致
+		return err
+	}
+	// 数据目录文件缺失/只读不致命：任务记录已删，残留文件无害
+	if s.path != "" {
+		dataDir := filepath.Dir(s.path)
+		_ = os.Remove(filepath.Join(dataDir, "progress", id+".jsonl"))
+		_ = os.Remove(filepath.Join(dataDir, "logs", id+".log"))
+	}
+	return nil
 }
 
 // saveLocked 落盘（调用方持锁）。临时文件 + rename 保证原子性。

@@ -1,7 +1,9 @@
 package main
 
-// Windows 桌面壳配套：窗口尺寸记忆（window.json）、单实例互斥、原生消息框、
-// 窗口矩形采样（user32）。非 Windows 平台回退为无壳运行（--dev）。
+// Windows 桌面壳配套（本文件 Windows-only：user32/kernel32 syscall，
+// 非本文件的其他平台路径见 main.go --dev）：
+// 窗口尺寸记忆（window.json）、单实例互斥、原生消息框、
+// 窗口矩形采样与最小尺寸约束（user32）。
 
 import (
 	"encoding/json"
@@ -81,13 +83,62 @@ var (
 	user32   = syscall.NewLazyDLL("user32.dll")
 	kernel32 = syscall.NewLazyDLL("kernel32.dll")
 
-	procGetWindowRect = user32.NewProc("GetWindowRect")
-	procMessageBoxW   = user32.NewProc("MessageBoxW")
-	procCreateMutexW  = kernel32.NewProc("CreateMutexW")
+	procGetWindowRect     = user32.NewProc("GetWindowRect")
+	procMessageBoxW       = user32.NewProc("MessageBoxW")
+	procCreateMutexW      = kernel32.NewProc("CreateMutexW")
+	procSetWindowLongPtrW = user32.NewProc("SetWindowLongPtrW")
+	procCallWindowProcW   = user32.NewProc("CallWindowProcW")
 )
 
 type rect struct {
 	Left, Top, Right, Bottom int32
+}
+
+// ── A2 最小尺寸：WM_GETMINMAXINFO 子类化 ──
+//
+// go-webview2 的 WindowOptions 没有 MinSize 字段，拖拽下限靠替换窗口过程实现：
+// 拦 WM_GETMINMAXINFO 填 ptMinTrackSize，其余消息原样链回原窗口过程。
+// syscall.NewCallback 不支持闭包，上下文走包级变量（应用单窗口，无重入问题）。
+
+const (
+	gwlpWndProc     = ^uintptr(3) // GWLP_WNDPROC = -4（64 位补码）
+	wmGetMinMaxInfo = 0x0024
+)
+
+type minMaxInfo struct {
+	PtReserved    [2]int32
+	PtMaxSize     [2]int32
+	PtMaxPosition [2]int32
+	PtMinTrack    [2]int32
+	PtMaxTrack    [2]int32
+}
+
+var (
+	minMaxPrevProc uintptr
+	minTrackSize   [2]int32
+)
+
+func minMaxWndProc(hwnd uintptr, msg uintptr, wp, lp uintptr) uintptr {
+	if msg == wmGetMinMaxInfo && lp != 0 {
+		// Win32 消息协议：lParam 由 OS 保证在消息处理期间指向 MINMAXINFO。
+		// go vet 的 unsafeptr 不识别回调参数的指针语义，此处告警为已知误报。
+		(*minMaxInfo)(unsafe.Pointer(lp)).PtMinTrack = minTrackSize
+	}
+	r, _, _ := procCallWindowProcW.Call(minMaxPrevProc, hwnd, msg, wp, lp)
+	return r
+}
+
+// enforceMinSize 把窗口拖拽下限钉在 minW×minH（物理像素）。hwnd 无效时静默跳过
+// （拿不到窗口约束不了拖拽，但功能不受影响）。
+func enforceMinSize(hwnd unsafe.Pointer, minW, minH int32) {
+	if hwnd == nil {
+		return
+	}
+	minTrackSize = [2]int32{minW, minH}
+	cb := syscall.NewCallback(minMaxWndProc)
+	hwp := uintptr(hwnd)
+	prev, _, _ := procSetWindowLongPtrW.Call(hwp, gwlpWndProc, cb)
+	minMaxPrevProc = prev
 }
 
 // windowSize 采样窗口当前客户区外框大小（用于尺寸记忆）。
