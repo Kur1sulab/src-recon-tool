@@ -29,14 +29,14 @@ C:/Go/go/bin/go.exe test ./...                              # 全部单测 + Pyt
 | `subdomain -d <domain> [--verify]` | `modules.subdomain.run_subdomain` | ✅ c1 已实现 |
 | `verify -d <domain> [-w 8]` | `modules.subdomain.run_verify` | ✅ c1 已实现 |
 | `fingerprint -u <url>` | `modules.fingerprint.run_fingerprint` | ✅ c1 已实现 |
-| `all -t <domain\|ip>` | `cmd_all` | ⏳ c3 轮串联（已注册，exit 2 防静默走错） |
+| `all -t <domain\|ip>` | `cmd_all` | ❌ **c3 拍板不实现**（exit 2；一键全流程请用 `python src/recon.py all`，Go 版按模块逐个跑） |
 | `asset -d` | `modules.asset` | ✅ c2（FOFA/Hunter 原生客户端，key 走环境变量） |
 | `reverse -i <ip>` | `modules.reverse_ip` | ✅ c2（hackertarget；域名正则改写为 RE2 兼容 label 校验） |
 | `icp -d` | `modules.icp` | ✅ c2（apihz；限频假 200 防御） |
 | `api -u` | `modules.api_unauth` | ✅ c2（27 端点清单 + 取证三件套） |
 | `paths -u` | `modules.paths` | ✅ c2（19 条字典 + 软 404 基线 + 复验） |
-| `jsintel -u` | `modules.jsintel` | ⏳ 待 c3 拍板是否移植（该模块只在本地提交里） |
-| `portscan -t` | `modules.portscan` | ⏳ 同上 |
+| `jsintel -u` | `modules.jsintel` | ⏸ **c3 拍板暂不移植**（exit 2；需要时用 Python 版） |
+| `portscan -t` | `modules.portscan` | ⏸ 同上 |
 | `poc -t -p` | `modules.poc_engine`（YAML 引擎） | ✅ c2（gopkg.in/yaml.v3，仓库唯一第三方依赖） |
 | `llm -d` | ~~`modules.llm_assist`~~ | ❌ **不移植，弃用**（Python 版也已整体移除该模块，两侧行为一致：提示并 exit 2） |
 | `report -t` | `modules.report` | ✅ c2（资产档案 + 证据包 zip） |

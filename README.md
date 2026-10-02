@@ -40,6 +40,31 @@ pip install -r requirements.txt
 # OneForAll 需单独部署，路径经环境变量 ONEFORALL_HOME 指定（可选）
 ```
 
+## Go 引擎（engine-go/）
+
+同一套引擎的纯 Go 重写（`recon-go` 单文件、零外网测试、Python↔Go parity 全量对齐），
+子命令与 `python src/recon.py` 一一对齐。详见 `engine-go/README.md`、
+`docs/PARITY.md`（双引擎对照）与 `docs/TEST-PORT.md`（测试平移清点）。
+
+```bash
+# 构建（Go 1.24+；仅在拉取 yaml.v3 时需代理）
+cd engine-go
+GOPROXY=https://goproxy.cn,direct C:/Go/go/bin/go.exe build -o recon-go.exe ./cmd/recon-go
+C:/Go/go/bin/go.exe test ./...        # 全部单测 + Python↔Go parity（python 缺失时 parity 自动 skip）
+
+# 用法（子命令与 Python 版同名同参）
+./recon-go.exe subdomain -d example.com --verify
+./recon-go.exe api -u https://example.com          # 含取证模式
+./recon-go.exe report -t example.com               # 资产档案 + 证据包
+# ...其余子命令见 ./recon-go.exe（无参数打印对照 help）
+```
+
+**已实现（✅）**：subdomain / verify / fingerprint / asset / reverse / icp / api /
+paths / poc / report。**未实现**：`all`（一键全流程，exit 2 并提示——全流程请用
+Python 版 `python src/recon.py all`）；jsintel / portscan 暂不移植（拍板留档，
+exit 2 防静默走错）。**llm 弃用**：两侧同步（Python 侧 llm_assist.py 已整体移除、
+recon.py 仅留弃用提示；Go 侧同行为——提示后 exit 2）。
+
 ## 用法
 
 ```bash

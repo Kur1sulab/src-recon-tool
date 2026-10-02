@@ -27,15 +27,15 @@ import (
 const helpText = `recon-go — SRC 信息收集自动化工具（Go 引擎，仅限授权测试）
 
 用法（DOMAIN 或 IP 都吃，工具自动识别）:
-  recon-go all -t example.com             # 域名/IP 全流程（c3 轮串联）
+  recon-go all -t example.com             # 一键全流程未实现（exit 2）——请用 python src/recon.py all
   recon-go subdomain -d example.com [--verify]
   recon-go verify -d example.com [-w 8]
   recon-go asset -d example.com           # ✅ c2（key 走 FOFA_EMAIL/FOFA_KEY、HUNTER_KEY）
   recon-go reverse -i 47.100.49.228       # ✅ c2
   recon-go icp -d example.com             # ✅ c2（APIHZ_ID/APIHZ_KEY 可覆盖）
   recon-go api -u https://example.com     # ✅ c2（含取证模式）
-  recon-go jsintel -u https://example.com # 待 c3 拍板是否移植
-  recon-go portscan -t 47.100.49.228      # 待 c3 拍板是否移植
+  recon-go jsintel -u https://example.com # 暂不移植（c3 拍板，exit 2）
+  recon-go portscan -t 47.100.49.228      # 暂不移植（c3 拍板，exit 2）
   recon-go fingerprint -u https://example.com
   recon-go paths -u https://example.com   # ✅ c2
   recon-go poc -t https://example.com -p pocs/example.yaml  # ✅ c2（YAML 引擎）
@@ -321,11 +321,13 @@ func dispatch(cmd string, rest []string) int {
 		return 0
 
 	case "all", "jsintel", "portscan":
+		// c3 拍板（终态）：all/jsintel/portscan 维持不实现——exit 2 防静默走错，
+		// 全流程/JS 情报/端口扫描请用 Python 版（python src/recon.py all 等）。
 		switch cmd {
 		case "all":
-			fmt.Println("[*] recon-go: 子命令 \"all\" 将在第 3/3 轮串联实现（本轮未移植，exit 2 防止静默走错分支）")
+			fmt.Println("[*] recon-go: 子命令 \"all\" 不实现（一键全流程请用 python src/recon.py all）")
 		default:
-			fmt.Printf("[*] recon-go: 子命令 %q 是否移植待 c3 拍板（本轮未移植，exit 2 防止静默走错分支）\n", cmd)
+			fmt.Printf("[*] recon-go: 子命令 %q 暂不移植（如需该能力请用 python src/recon.py %s）\n", cmd, cmd)
 		}
 		return 2
 

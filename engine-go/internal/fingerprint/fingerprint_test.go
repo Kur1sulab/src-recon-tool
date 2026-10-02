@@ -87,3 +87,28 @@ func TestMatchSoft404NoFalseHit(t *testing.T) {
 		t.Fatalf("SPA 外壳误命中: %v", hits)
 	}
 }
+
+// TestNoNaturalLanguageThinkPHP 回归平移 test_new_modules.py:114-129：
+// 正文出现自然语言 "thinkphp" 不得判 ThinkPHP（body 规则只认技术特征）；
+// 技术特征（think_exception + 版本号）仍必须命中。
+func TestNoNaturalLanguageThinkPHP(t *testing.T) {
+	hay := "我在文章里聊了 think 和 php 的关系，也提到过 thinkphp 这个框架名字。"
+	for i, r := range Rules {
+		if r.Where != "body" {
+			continue
+		}
+		if compiled[i].MatchString(strings.ToLower(hay)) && r.Name == "ThinkPHP" {
+			t.Fatalf("自然语言正文误命中 ThinkPHP（规则 %d）", i)
+		}
+	}
+	techHay := "think_exception: 无法加载模块  ThinkPHP 5.1.37"
+	hit := false
+	for i, r := range Rules {
+		if r.Where == "body" && r.Name == "ThinkPHP" && compiled[i].MatchString(strings.ToLower(techHay)) {
+			hit = true
+		}
+	}
+	if !hit {
+		t.Fatal("技术特征正文应命中 ThinkPHP")
+	}
+}
