@@ -139,6 +139,19 @@ engine-go/
   `follow=False`——但 Python 该参数不生效，实际仍跟随，apihz 若 302 两引擎
   落点不同（Go 停 3xx 不外发凭据，Python 跟随）。依赖此差异的场景须先修
   Python HTTPRedirectHandler。
+7. **逐跳校验全域覆盖（fix3）**：Baseline/VerifyLive（api/paths 的基线探针与
+   存活复验）与 fingerprint/PickBase 全部统一 `HopPolicy(入口)`；Python 侧
+   baseline/verify_live 无逐跳校验——公网目标 + 可控 302 场景 Go 拒/Python 跟，
+   属 Go 侧单向加固（同 #5）。
+8. **写盘失败退出码（fix3）**：subdomain/api/paths/report 的产物写盘失败
+   Go 上抛 → exit 1 + fail 事件；此前吞错 exit 0 会被桌面壳标成"完成"。
+   Python safe_write 抛 ValueError → exit 1，两引擎对齐。
+9. **CLI 契约（fix3）**：`help` 子命令对齐 argparse 为未知选择 exit 2；
+   子命令内 `-h/--help` 打印用法后 exit 0；`--progress_file` 下划线别名移除
+  （仅精确 `--progress-file`）；重复旗标 last-wins（fix2 已对齐）。
+10. **错误信息脱敏（fix3）**：CheckHTTPURL/check_http_url 的「非法 URL」错误
+   只保留到 path（`?…` 截断）——query 可能携带 api-key 等凭据，畸形 env 值
+   触发解析失败时不得回显。两引擎同步。
 7. **icp 凭据门禁（fix2）**：未配置 APIHZ_ID/APIHZ_KEY 时两引擎都跳过查询
   （0 请求，不再回落官方公开 demo 字面量）；domain 双侧经 URL 编码防参数注入。
 8. **CLI 输入校验（fix2，Go 侧 fail-closed）**：`reverse -i` 严格 IP、

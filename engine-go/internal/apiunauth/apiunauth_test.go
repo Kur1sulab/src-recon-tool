@@ -110,7 +110,10 @@ func TestRunAPIWritesDocAndEvidence(t *testing.T) {
 	srv := mockweb.New()
 	defer srv.Close()
 	out := t.TempDir()
-	hits := RunAPI(srv.URL+"/real", out, true)
+	hits, err := RunAPI(srv.URL+"/real", out, true)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(hits) == 0 {
 		t.Fatal("real 场景应有命中")
 	}

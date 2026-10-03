@@ -63,14 +63,17 @@ func (b BaselineResult) MarshalJSON() ([]byte, error) {
 // 301/302→redirect，否则 normal。注意重定向环场景：Python 侧 urllib 重定向超限
 // 抛 HTTPError(302) 被 fetch 捕获为 ok=true，两次探针指纹同为空串摘要，判为
 // redirect——Go 侧 newClient 的 CheckRedirect 语义已对齐这一点。
-func Baseline(baseURL string, timeout time.Duration) BaselineResult {
+func Baseline(baseURL string, timeout time.Duration, hop func(string) error) BaselineResult {
 	if timeout <= 0 {
 		timeout = 12 * time.Second
 	}
 	base := strings.TrimRight(baseURL, "/")
 	var oks []Result
 	for i := 1; i <= 2; i++ {
-		r := Fetch(fmt.Sprintf("%s/_%s%d", base, probeRand, i), FetchOpt{Timeout: timeout, Follow: true})
+		// fix3（audit high#1）：基线探针与主探测同受逐跳校验约束——30x 落点
+		// 不设防时 status/size/digest/final_url 落进产物构成内网可达性 oracle
+		r := Fetch(fmt.Sprintf("%s/_%s%d", base, probeRand, i),
+			FetchOpt{Timeout: timeout, Follow: true, HopCheck: hop})
 		if r.OK {
 			oks = append(oks, r)
 		}
@@ -108,11 +111,29 @@ func IsBaseline(resp Result, base BaselineResult) bool {
 	return SameShape(resp, Result{Status: base.Status, Digest: base.Digest, Size: base.Size, Ctype: base.Ctype})
 }
 
-// Attempt 存活复验的单次请求摘要（JSON 键对齐 Python）。
+// Attempt 存活复验的单次请求摘要（JSON 键序对齐 Python netutil.py:227）。
+// fix3（audit medium#3）：请求失败时 Python r.get() 为 null，Go 零值此前
+// 序列化 0/""——ok 标记 + MarshalJSON 还原 null 语义。
 type Attempt struct {
-	Status int    `json:"status"`
-	Size   int    `json:"size"`
-	Digest string `json:"digest"`
+	Status int    `json:"-"`
+	Size   int    `json:"-"`
+	Digest string `json:"-"`
+	ok     bool   `json:"-"`
+}
+
+func (a Attempt) MarshalJSON() ([]byte, error) {
+	if !a.ok {
+		return json.Marshal(struct {
+			Status any `json:"status"`
+			Size   any `json:"size"`
+			Digest any `json:"digest"`
+		}{})
+	}
+	return json.Marshal(struct {
+		Status int    `json:"status"`
+		Size   int    `json:"size"`
+		Digest string `json:"digest"`
+	}{a.Status, a.Size, a.Digest})
 }
 
 // LiveResult 对齐 Python verify_live() 返回 dict。
@@ -125,7 +146,7 @@ type LiveResult struct {
 // VerifyLive 存活复验，对齐 netutil.py:212-225：
 // 连续 tries 次请求；特征消失/状态码不一致立即判死；全部 ok 后
 // 「指纹全相等且非空 或 长度全相等」才算存活。
-func VerifyLive(rawURL string, tries int, timeout time.Duration, expectBody string) LiveResult {
+func VerifyLive(rawURL string, tries int, timeout time.Duration, expectBody string, hop func(string) error) LiveResult {
 	if tries < 1 {
 		tries = 1
 	}
@@ -134,8 +155,8 @@ func VerifyLive(rawURL string, tries int, timeout time.Duration, expectBody stri
 	}
 	var attempts []Attempt
 	for i := 0; i < tries; i++ {
-		r := Fetch(rawURL, FetchOpt{Timeout: timeout, Follow: true})
-		attempts = append(attempts, Attempt{Status: r.Status, Size: r.Size, Digest: r.Digest})
+		r := Fetch(rawURL, FetchOpt{Timeout: timeout, Follow: true, HopCheck: hop})
+		attempts = append(attempts, Attempt{Status: r.Status, Size: r.Size, Digest: r.Digest, ok: r.OK})
 		if expectBody != "" && !strings.Contains(strings.ToLower(r.Body), strings.ToLower(expectBody)) {
 			return LiveResult{Live: false, Attempts: attempts, Note: "复验时特征消失"}
 		}

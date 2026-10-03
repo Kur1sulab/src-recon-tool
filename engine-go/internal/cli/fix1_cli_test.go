@@ -123,7 +123,8 @@ func TestProgressFileEnvFallbackAndNoEventsOnHelp(t *testing.T) {
 		args []string
 		code int
 	}{
-		{"help", []string{"--progress-file", pf, "help"}, 0},
+		// fix3（audit low#6）：argparse 无 help 子命令——对齐为未知选择 exit 2
+		{"help", []string{"--progress-file", pf, "help"}, 2},
 		{"无子命令", []string{"--progress-file", pf}, 1},
 		{"未知全局参数", []string{"--wat", "verify"}, 2},
 		{"未知子命令", []string{"--progress-file", pf, "nope"}, 2},

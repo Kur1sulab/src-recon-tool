@@ -17,7 +17,7 @@ func TestRunRejectsIllegalDomainShapes(t *testing.T) {
 		"   ",
 		"a.com\nevil",
 	} {
-		if got := Run(d, t.TempDir()); got != nil {
+		if got, _ := Run(d, t.TempDir()); got != nil {
 			t.Fatalf("Run(%q) 应被入口污点闸拦截返回 nil, 得 %v", d, got)
 		}
 	}

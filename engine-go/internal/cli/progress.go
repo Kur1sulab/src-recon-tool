@@ -64,7 +64,7 @@ func applyProgressFile(args []string) ([]string, int) {
 			return args, 0 // 子命令起点
 		}
 		switch {
-		case tok == "--progress-file" || tok == "--progress_file":
+		case tok == "--progress-file": // fix3：argparse 不认下划线别名，仅精确长名
 			if len(args) < 2 {
 				fmt.Println("[!] --progress-file 需要一个路径参数\n\n用法: recon-go [--progress-file <path>] <子命令> ...")
 				return nil, 2
@@ -73,9 +73,6 @@ func applyProgressFile(args []string) ([]string, int) {
 			args = args[2:]
 		case strings.HasPrefix(tok, "--progress-file="):
 			setProgressFile(strings.TrimPrefix(tok, "--progress-file="))
-			args = args[1:]
-		case strings.HasPrefix(tok, "--progress_file="):
-			setProgressFile(strings.TrimPrefix(tok, "--progress_file="))
 			args = args[1:]
 		case tok == "-h" || tok == "--help" || tok == "help":
 			return nil, -1 // 帮助：不发事件，退出码 0

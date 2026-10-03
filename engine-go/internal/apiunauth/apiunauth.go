@@ -4,6 +4,7 @@
 package apiunauth
 
 import (
+	"encoding/json"
 	"fmt"
 	neturl "net/url"
 	"path/filepath"
@@ -96,9 +97,41 @@ func Classify(path string, status int, body, ctype string, size int, expect []st
 // statusOrNil/errOrNil 对齐 Python r.get("status")/r.get("error") 的 null 语义
 // （fix2 audit low#3①）：请求成功 → status int / error null；失败 → status null /
 // error 字符串。此前 Go 恒出 int/""，落盘 JSON 键型与 Python 漂移。
+// reproAttemptsJSON 把 attempts 渲染成 JSON 文本（fix3 audit low#7：
+// 此前 %v 渲染 Go 结构体形态；JSON 形态无歧义且带 Attempt 的 null 语义）。
+func reproAttemptsJSON(v any) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Sprintf("%v", v)
+	}
+	return string(b)
+}
+
+// pyNone 对齐 Python print 对 None 的字面渲染（展示层，fix3 audit low#7）。
+func pyNone(v any) string {
+	if v == nil {
+		return "None"
+	}
+	return fmt.Sprintf("%v", v)
+}
+
 func statusOrNil(r netutil.Result) any {
 	if r.OK {
 		return r.Status
+	}
+	return nil
+}
+
+func sizeOrNil(r netutil.Result) any {
+	if r.OK {
+		return r.Size
+	}
+	return nil
+}
+
+func digestOrNil(r netutil.Result) any {
+	if r.OK {
+		return r.Digest
 	}
 	return nil
 }
@@ -114,14 +147,18 @@ func errOrNil(r netutil.Result) any {
 // （Python **verdict 展开语义）；hits 排序 = live 优先、风险 高0中1低2（稳定排序）。
 func Probe(baseURL string, timeout time.Duration, verify bool) ([]map[string]any, []map[string]any) {
 	base := strings.TrimRight(baseURL, "/")
-	bl := netutil.Baseline(base, timeout)
-	fmt.Printf("[*] 站点基线: %s（随机路径 → %d, %dB, %s）\n", bl.Kind, bl.Status, bl.Size, dashEmpty(bl.Ctype))
+	hop := netutil.HopPolicy(base) // fix2 P1 + fix3：基线/主探测/复验共用同一逐跳策略
+	bl := netutil.Baseline(base, timeout, hop)
+	blStatus := any(bl.Status)
+	if bl.Kind == "unknown" {
+		blStatus = nil // fix3（audit low#7）：对齐 Python bl.get("status") 的 None 渲染
+	}
+	fmt.Printf("[*] 站点基线: %s（随机路径 → %s, %dB, %s）\n", bl.Kind, pyNone(blStatus), bl.Size, dashEmpty(bl.Ctype))
 	switch bl.Kind {
 	case "soft404", "uniform403", "redirect":
 		fmt.Printf("[!] 该站存在 catch-all（%s），已启用形态比对过滤——假阳性会被剔除\n", bl.Kind)
 	}
 	var rows, hits []map[string]any
-	hop := netutil.HopPolicy(base) // fix2 P1：逐跳校验（策略由入口公网/私网推导）
 	for _, ep := range Endpoints {
 		u := base + ep.Path
 		r := netutil.Fetch(u, netutil.FetchOpt{Timeout: timeout, Follow: true, HopCheck: hop})
@@ -141,7 +178,7 @@ func Probe(baseURL string, timeout time.Duration, verify bool) ([]map[string]any
 				row["evidence"] = (verdict.Evidence) + " / 与站点基线形态一致（catch-all）"
 			} else {
 				if verify {
-					v := netutil.VerifyLive(u, 2, timeout, verdict.Marker)
+					v := netutil.VerifyLive(u, 2, timeout, verdict.Marker, hop)
 					row["live"] = v.Live
 					row["recheck"] = v
 				}
@@ -199,8 +236,10 @@ func SaveEvidence(row map[string]any, out string) (map[string]any, error) {
 		HopCheck: netutil.HopPolicy(rawURL)})
 	recheckAttempts := attemptsOf(row["recheck"])
 	meta := map[string]any{
-		"url": rawURL, "collected_at": ts, "status": r.Status, "size": r.Size,
-		"digest": r.Digest, "ctype": r.Ctype, "server": r.Headers["server"],
+		// fix3（audit medium#3）：对齐 api_unauth.py:124 r.get() 的 null 语义——
+		// 请求失败时 status/size/digest 为 null 而非 0/""
+		"url": rawURL, "collected_at": ts, "status": statusOrNil(r), "size": sizeOrNil(r),
+		"digest": digestOrNil(r), "ctype": r.Ctype, "server": r.Headers["server"],
 		"name": row["name"], "risk": row["risk"], "evidence": row["evidence"],
 		"live": row["live"], "recheck": recheckAttempts,
 	}
@@ -220,7 +259,7 @@ func SaveEvidence(row map[string]any, out string) (map[string]any, error) {
 - 采集时间：%s
 - 状态码 %d · 大小 %d B · Content-Type `+"`%s`"+`
 - 判定依据：%s
-- 存活复验：连续两次形态一致（%v）
+- 存活复验：连续两次形态一致（%s）
 
 ## 复现命令
 
@@ -240,7 +279,7 @@ curl -sk -i '%s' | head -c 2000
 3. 报告只写实测到的内容，不做推断性描述。
 `,
 		strOr(row["name"], ""), strOr(row["risk"], ""), rawURL, ts, r.Status, r.Size, r.Ctype,
-		strOr(row["evidence"], ""), recheckAttempts, rawURL, marker)
+		strOr(row["evidence"], ""), reproAttemptsJSON(recheckAttempts), rawURL, marker)
 	if _, err := netutil.SafeWrite(d, "repro.md", repro); err != nil {
 		return nil, err
 	}
@@ -248,7 +287,7 @@ curl -sk -i '%s' | head -c 2000
 }
 
 // RunAPI 探测+取证+落盘，对齐 api_unauth.py:161-190。返回 hits。
-func RunAPI(url, out string, evidence bool) []map[string]any {
+func RunAPI(url, out string, evidence bool) ([]map[string]any, error) {
 	fmt.Printf("[*] API 文档/未授权探测: %s（%d 个候选端点）\n", url, len(Endpoints))
 	rows, hits := Probe(url, 0, true)
 	var live []map[string]any
@@ -288,8 +327,9 @@ func RunAPI(url, out string, evidence bool) []map[string]any {
 	}
 	path, err := netutil.SafeWrite(out, "api_unauth.json", jsonx.Pretty(doc))
 	if err != nil {
+		// fix3（audit medium#4）：上抛 → CLI exit 1 + fail 事件，对齐 Python safe_write 抛 ValueError
 		fmt.Printf("[!] api_unauth.json 写盘失败: %v\n", err)
-		path = "-"
+		return nil, err
 	}
 	if len(hits) > 0 {
 		fmt.Printf("[+] 探测完成：%d 个疑似命中，其中**存活复验通过 %d 个**（catch-all 过滤掉 %d 条）\n",
@@ -308,7 +348,7 @@ func RunAPI(url, out string, evidence bool) []map[string]any {
 		fmt.Printf("[*] 探测完成：未发现暴露的 API 文档/运维端点（catch-all 过滤掉 %d 条疑似）\n", soft)
 	}
 	fmt.Printf("    -> %s\n", path)
-	return hits
+	return hits, nil
 }
 
 // ── 小工具 ──

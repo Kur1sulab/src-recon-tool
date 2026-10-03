@@ -76,7 +76,13 @@ func CheckHTTPURL(rawURL string, allowPrivate bool) (string, error) {
 	u := strings.TrimSpace(rawURL)
 	p, err := url.Parse(u)
 	if err != nil {
-		return "", fmt.Errorf("非法 URL: %q", trunc(u, 80))
+		// fix3（audit low#8）：query 可能携带 api-key 等凭据（畸形 env 值导致
+		// Parse 失败时走到此分支），错误信息只保留到 path 为止，不回显 query
+		red := u
+		if i := strings.IndexAny(red, "?#"); i >= 0 {
+			red = red[:i] + "?…"
+		}
+		return "", fmt.Errorf("非法 URL: %q", trunc(red, 80))
 	}
 	if (p.Scheme != "http" && p.Scheme != "https") || p.Host == "" {
 		return "", fmt.Errorf("非法探测目标（仅允许 http/https 远程地址）: %q", trunc(u, 80))

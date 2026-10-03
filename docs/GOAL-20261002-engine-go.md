@@ -166,3 +166,77 @@ zip）；CLI 七子命令从"未实现"拆出真实现；验收=go build 单 exe
 5. 工作区已有第 3 轮在途改动（apiunauth/asset M、redteam_adv2 新包、stdout 采样文件）——c3 动工
    前先对齐在途会话进度，勿重复施工。
 
+---
+
+## 第 3 轮（c3，收口轮）— 2026-10-02/03
+
+### 目标
+parity 全量跑通并落 docs/PARITY.md（mock 全场景 Python vs Go 关键输出对照表）；
+docs/TEST-PORT.md 测试平移全量清点表；白名单内 xycovo.com 真实小规模侦察两版合理性对比；
+README 更新（Go 版用法/llm 弃用/状态表收口）；commit + push。
+
+### 产出
+提交（六笔，全部已推 origin/main，`git status -sb` 无 ahead）：
+- `108ce88` **engine-go(fix2)**：第 2 轮审计修复 + redteam-adv2 只读对抗测试包落定（r302 场景/
+  限频防御/safeio 加固 + fix2 测试；src 侧 icp/report/recon 同步）；4 个 CLI stdout 采样收编
+  `engine-go/docs/parity-samples/` 作 PARITY 证据；GOAL 第 2 轮节与 REVIEW-c2 入库（代在途会话提交）
+- `dcfc220` **PARITY.md 五节对照**（方法论/14 项矩阵/mock 七场景两版 CLI 采样表/口径差异清单/
+  xycovo.com 真实对比）+ **TEST-PORT.md 平移清点**（Python 73→Go 127 实测口径）
+- `82aeef1` 收口拍板：all/jsintel/portscan **维持不实现**（cli helpText :37-38 + dispatch :323-324
+  "c3 拍板（终态）" + 双 README 文案一致，均指 Python 版）；补 fingerprint 自然语言误报回归 2 例
+  （test_new_modules.py:114-129 平移缺口）
+- `3eb2c9e` / `30ee014` go-engine-ci 红灯修复：私网全集表升级 CPython 3.13 口径 + 探针测试版本感知；
+- `8b9717f` parity 定位收口为**本地黄金对照门禁**——RequiresPython 加 CI 环境自跳（CI 只跑可移植
+  核心），go-engine-ci 加环境取证步 + go test -v 留档
+
+### 语义漂移（第 3 轮新增）
+1. **私网全集表的 CPython 版本口径**：CI 红灯暴露——64:ff9b:1::/48、2002::/16、3fff::/20 与
+   192.0.0.0/29→/24 是 CPython 3.13 才入 ipaddress 的段；本机 Python 3.8/3.12 与 runner 3.9/3.10
+   均不含。Go 侧升级为 3.13 口径，动态 python 探针改版本感知（<3.11 跳过版本差异段）——
+   "对齐 Python"从对齐某一版本改为对齐最新口径+显式版本感知（PARITY.md ④）。
+2. **parity 门禁定位调整**：CI 环境 python 版本不可控（3.9 无私网表）→ RequiresPython 在 CI 自跳，
+   parity 全量矩阵定位为本地黄金对照门禁（本机 3.12/3.13 全量 15 包复现全绿，30ee014）。
+3. **真实环境 fake-ip 事实**：xycovo.com 实测子域 0 条——Clash fake-ip 把 crt.sh/certspotter 本身
+   解析进 198.18.0.0/15，两版 SSRF 防御同样阻断。这是防御语义 parity 的实证而非数据源差异
+   （PARITY.md ⑤差异解释）。
+4. **digest 真实环境佐证**：xycovo.com 的 14691B 404 页，两版独立算出同一 SHA-256 前 16 位
+   `1229a80e9158c935`——digest 口径对齐在真实目标上闭环。
+5. llm 弃用终态：Python 侧 llm_assist.py 已删除、recon.py:260-262 子命令提示弃用 exit 2；
+   Go 侧 cli.go:177 同行为——"不移植"收敛为"两侧一致弃用"。
+
+### 审计对抗处置
+- redteam-adv2 只读对抗测试包落定（假 key 声明/黑洞端口/httptest 零外网，redteam_adv2 4 项测试）。
+- fix2 修复面：r302 重定向场景、ICP 限频防御加固、safeio 加固 + fix2 系列回归测试。
+- 指纹自然语言误报回归 2 例补齐平移缺口（"think 和 php"文章正文不再误判 ThinkPHP）。
+- 证据链纪律：CLI 实跑 stdout 采样统一收编 `engine-go/docs/parity-samples/`，PARITY.md 逐表引用。
+
+### 复核结论（本轮实跑，8b9717f 独立 worktree）
+- `go build -o recon-go.exe .` → BUILD OK，单 exe 10,303,488 bytes；`go vet ./...` 干净
+- `go test ./...` → **15 包 ok + 1 FAIL**：`TestRunSubfinderTimeoutAborts`
+  （internal/toolrun/fix2b_test.go:31——subfinder 300ms 超时未生效，实测阻塞 3.28s，Windows 本机
+  实测失败；工作区在途改动为 subdomain/fix2b_test.go，未见 toolrun 对应修复）。其余全部绿，
+  含 parity 59.4s、redteam_adv2 11.6s。
+- Python 侧：`python -m unittest discover -s tests` → Ran 73 tests, FAILED (failures=3)——
+  既知 fake-ip 环境失败，无新增回归。
+- PARITY.md 抽查（docs/PARITY.md 实读）：五节齐全；14 项矩阵带断言说明；xycovo 逐指标对比表
+  指纹 0/0、paths alive 1(/robots.txt 200,71B,复验通过) 两版一致、api 0/0、差异全部标注可解释。
+- TEST-PORT.md 抽查：Python 73 项 → Go 127 Test 函数/15 包（实数口径，明确"不追求数字相等、
+  不凑 83"）；jsintel 15 项 + portscan 8 项标不适用；3 项环境失败标注"非平移缺口"。
+- 拍板一致性 ✅：cli.go:37-38/323-324 与双 README 文案一致；TEST-PORT.md:110 详表已同步
+  （:20-21 汇总表旧文案"待拍板"未同步，文案级瑕疵，见遗留）。
+- **CI 状态未能本机核实**：gh 命令不存在；GitHub API 匿名查询返回 rate limit exceeded
+  （2026-10-03 实测）——需人工到 GitHub Actions 页确认 tests.yml 与 go-engine-ci.yml 最新绿。
+
+### 遗留
+1. **TestRunSubfinderTimeoutAborts 失败（本轮复核发现的 c3 顶端真实缺陷）**：Windows 下
+   subfinder 超时中止未按 ~300ms 生效（阻塞 3.28s）——下一轮修复优先项；修复前 subfinder 通道
+   带超时不可信（可选通道，不影响 OneForAll 主链路）。
+2. CI 双绿需人工确认（本机无 gh、API 限流）；go-engine-ci 的环境取证步产出可在 Actions 日志回查。
+3. TEST-PORT.md:20-21 汇总表 jsintel/portscan 行仍是"待 c3 拍板"旧文案，与 :110 拍板结论不同步
+   ——文案勘误。
+4. 工作区又有新一批在途改动（apiunauth/asset/cli/fingerprint/netutil/subdomain fix2b_test 等 M）
+   ——归属后续会话，勿在本日志范围处置。
+5. **三轮 IterPlan 至此全部完成**：engine-go 与 Python 版语义对齐状态以 PARITY.md/TEST-PORT.md
+   为准；后续演进（subfinder 超时修复、jsintel/portscan 若拍板移植、all 串联）另起轮次。
+
+

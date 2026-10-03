@@ -357,7 +357,7 @@ func soft404Server(t *testing.T) *httptest.Server {
 func TestBaselineKinds(t *testing.T) {
 	srv := soft404Server(t)
 	defer srv.Close()
-	b := Baseline(srv.URL, 3*time.Second)
+	b := Baseline(srv.URL, 3*time.Second, nil)
 	if b.Kind != "soft404" || b.Status != 200 || b.Samples != 2 {
 		t.Fatalf("soft404 站基线 = %+v", b)
 	}
@@ -369,7 +369,7 @@ func TestBaselineKinds(t *testing.T) {
 		http.Error(w, "denied", http.StatusForbidden)
 	}))
 	defer waf.Close()
-	if b := Baseline(waf.URL, 3*time.Second); b.Kind != "uniform403" {
+	if b := Baseline(waf.URL, 3*time.Second, nil); b.Kind != "uniform403" {
 		t.Fatalf("403 站基线 kind = %s", b.Kind)
 	}
 
@@ -378,7 +378,7 @@ func TestBaselineKinds(t *testing.T) {
 		w.WriteHeader(http.StatusFound)
 	}))
 	defer loop.Close()
-	lb := Baseline(loop.URL, 3*time.Second)
+	lb := Baseline(loop.URL, 3*time.Second, nil)
 	if lb.Kind != "redirect" {
 		t.Fatalf("重定向环基线 kind = %s（Python 实测 redirect）", lb.Kind)
 	}
@@ -387,7 +387,7 @@ func TestBaselineKinds(t *testing.T) {
 	}
 
 	// 站点不可达 → unknown
-	b = Baseline("http://127.0.0.1:1/", 1*time.Second)
+	b = Baseline("http://127.0.0.1:1/", 1*time.Second, nil)
 	if b.Kind != "unknown" {
 		t.Fatalf("不可达基线 kind = %s", b.Kind)
 	}
@@ -414,7 +414,7 @@ func TestVerifyLive(t *testing.T) {
 		_, _ = w.Write([]byte("stable content flag"))
 	}))
 	defer srv.Close()
-	lr := VerifyLive(srv.URL, 2, 3*time.Second, "flag")
+	lr := VerifyLive(srv.URL, 2, 3*time.Second, "flag", nil)
 	if !lr.Live {
 		t.Fatalf("稳定站应 live: %+v", lr)
 	}
@@ -432,7 +432,7 @@ func TestVerifyLive(t *testing.T) {
 		}
 	}))
 	defer srv2.Close()
-	if lr := VerifyLive(srv2.URL, 2, 3*time.Second, "flag"); lr.Live {
+	if lr := VerifyLive(srv2.URL, 2, 3*time.Second, "flag", nil); lr.Live {
 		t.Fatalf("特征消失应判死: %+v", lr)
 	}
 }

@@ -11,7 +11,7 @@ import (
 	"github.com/Kur1sulab/src-recon-tool/engine-go/internal/netutil"
 )
 
-// PathsList 18 条逐字对照 paths.py:20-26。
+// PathsList 19 条逐字对照 paths.py:20-26。
 var PathsList = []string{
 	"/robots.txt", "/.git/config", "/.env", "/admin", "/admin/login",
 	"/api/swagger", "/swagger-ui.html", "/v2/api-docs",
@@ -36,10 +36,10 @@ type Row struct {
 }
 
 // RunPaths 敏感路径探测主流程，对齐 paths.py:29-67。返回存活行。
-func RunPaths(url, out string) []Row {
+func RunPaths(url, out string) ([]Row, error) {
 	base := strings.TrimRight(url, "/")
 	hop := netutil.HopPolicy(base) // fix2 P1：逐跳校验（策略由入口公网/私网推导）
-	bl := netutil.Baseline(base, 0)
+	bl := netutil.Baseline(base, 0, hop)
 	fmt.Printf("[*] 敏感路径探测: %s（%d 条字典）\n", url, len(PathsList))
 	fmt.Printf("[*] 站点基线: %s（随机路径 → %d, %dB）\n", bl.Kind, bl.Status, bl.Size)
 	switch bl.Kind {
@@ -63,7 +63,7 @@ func RunPaths(url, out string) []Row {
 		}
 		switch {
 		case r.Status == 200:
-			v := netutil.VerifyLive(base+p, 2, 0, "")
+			v := netutil.VerifyLive(base+p, 2, 0, "", hop)
 			if v.Live {
 				row.Verdict = "可访问"
 			} else {
@@ -88,13 +88,14 @@ func RunPaths(url, out string) []Row {
 	}
 	path, err := netutil.SafeWrite(out, "paths.json", jsonx.Pretty(doc))
 	if err != nil {
+		// fix3（audit medium#4）：上抛 → CLI exit 1 + fail 事件，对齐 Python safe_write 抛 ValueError
 		fmt.Printf("[!] paths.json 写盘失败: %v\n", err)
-		path = "-"
+		return nil, err
 	}
 	fmt.Printf("[+] 敏感路径探测完成（存活 %d 个，另有 %d 条被拒绝/跳转/基线过滤）-> %s\n",
 		len(alive), len(notes), path)
 	for _, row := range alive {
 		fmt.Printf("      [可访问] %s  (%d, %dB, 复验通过)\n", row.Path, row.Status, row.Size)
 	}
-	return alive
+	return alive, nil
 }

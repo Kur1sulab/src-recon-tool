@@ -15,7 +15,10 @@ func TestPathsNoFalsePositives(t *testing.T) {
 	srv := mockweb.New()
 	defer srv.Close()
 	for _, sc := range []string{"soft404", "api404", "waf", "loginredirect", "empty"} {
-		alive := RunPaths(srv.URL+"/"+sc, t.TempDir())
+		alive, err := RunPaths(srv.URL+"/"+sc, t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
 		if len(alive) != 0 {
 			t.Errorf("[%s] 应零命中, got %d", sc, len(alive))
 		}
@@ -28,7 +31,10 @@ func TestPathsRealDetected(t *testing.T) {
 	srv := mockweb.New()
 	defer srv.Close()
 	out := t.TempDir()
-	alive := RunPaths(srv.URL+"/real", out)
+	alive, err := RunPaths(srv.URL+"/real", out)
+	if err != nil {
+		t.Fatal(err)
+	}
 	got := map[string]bool{}
 	for _, a := range alive {
 		got[a.Path] = true
@@ -63,7 +69,7 @@ func TestPathsRealDetected(t *testing.T) {
 	// notes：real 站 kind=normal，404 行两侧（Python/Go）都不进任何产出 → 允许为空；
 	// 但在有 catch-all 的站（waf/soft404），过滤行必须齐字段——用 soft404 场景补验。
 	softOut := t.TempDir()
-	RunPaths(srv.URL+"/soft404", softOut)
+	_, _ = RunPaths(srv.URL+"/soft404", softOut)
 	sb, err := os.ReadFile(filepath.Join(softOut, "paths.json"))
 	if err != nil {
 		t.Fatal(err)

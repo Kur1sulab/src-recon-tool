@@ -29,7 +29,7 @@ type Request struct {
 	Method    string            `yaml:"method"`
 	Path      string            `yaml:"path"`
 	Headers   map[string]string `yaml:"headers"`
-	Body      string            `yaml:"body"`
+	Body      *string           `yaml:"body"` // nil=未写（GET 语义）；&""=显式空串（urllib b""→POST）
 	Matchers  []Matcher         `yaml:"matchers"`
 	Condition string            `yaml:"condition"`
 }
@@ -114,8 +114,8 @@ func RunPOC(target, pocFile string) bool {
 			headers[k] = v
 		}
 		var data []byte
-		if req.Body != "" {
-			data = []byte(req.Body) // Python: str → .encode()；None → data=None
+		if req.Body != nil {
+			data = []byte(*req.Body) // Python: str(含空串)→.encode()=b""非 None→POST；None→GET
 		}
 		r := netutil.Fetch(url, netutil.FetchOpt{
 			Timeout: 10 * time.Second, Method: method, Headers: headers, Data: data, Follow: true,

@@ -109,13 +109,11 @@ func RunFingerprint(rawURL, out string) {
 	}
 	var r netutil.Result
 	if url != "" {
-		// fix1 P1：跟随重定向时逐跳复验落点（与入口 CheckHTTPURL 同策略
-		// allowPrivate=true），堵「入口校验不约束 302 落点」的边界盲区。
+		// fix1 P1 + fix3（audit medium#2）：逐跳复验统一 HopPolicy(入口)——
+		// 公网入口的 302 落点拒绝内网/云元数据（此前固定 allowPrivate=true
+		// 无条件放行，与 api/paths/poc 割裂）；入口私网=授权内网靶标→放行。
 		r = netutil.Fetch(url, netutil.FetchOpt{Timeout: 15 * time.Second, MaxBytes: 300000, Follow: true,
-			HopCheck: func(next string) error {
-				_, err := netutil.CheckHTTPURL(next, true)
-				return err
-			}})
+			HopCheck: netutil.HopPolicy(url)})
 	}
 	var body, headers string
 	if r.OK && r.Status == 200 {

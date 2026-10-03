@@ -238,8 +238,14 @@ from modules.paths import run_paths
 alive = run_paths(sys.argv[1], sys.argv[2])
 print(json.dumps([a["path"] for a in alive]))
 `, scenario, t.TempDir()))
-		goAPIHits := apiunauth.RunAPI(scenario, t.TempDir(), false)
-		goPathsAlive := paths.RunPaths(scenario, t.TempDir())
+		goAPIHits, err := apiunauth.RunAPI(scenario, t.TempDir(), false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		goPathsAlive, err := paths.RunPaths(scenario, t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
 		if strings.TrimSpace(pyAPI) != "[]" || len(goAPIHits) != 0 {
 			t.Errorf("[%s] api 命中: py=%s go=%d", sc, pyAPI, len(goAPIHits))
 		}
@@ -267,7 +273,10 @@ print(json.dumps([[h["path"], bool(h.get("live"))] for h in hits]))
 		live, _ := h[1].(bool)
 		pyGot[p] = live
 	}
-	goHits := apiunauth.RunAPI(real, t.TempDir(), false)
+	goHits, err := apiunauth.RunAPI(real, t.TempDir(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
 	goGot := map[string]bool{}
 	for _, h := range goHits {
 		live, _ := h["live"].(bool)
@@ -295,7 +304,10 @@ print(json.dumps([[a["path"], bool(a.get("verified"))] for a in alive]))
 		v, _ := a[1].(bool)
 		pyP[p] = v
 	}
-	goAlive := paths.RunPaths(real, t.TempDir())
+	goAlive, err := paths.RunPaths(real, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	goP := map[string]bool{}
 	for _, a := range goAlive {
 		goP[a.Path] = a.Verified != nil && *a.Verified

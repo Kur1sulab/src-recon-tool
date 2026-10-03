@@ -19,15 +19,17 @@ func TestRunSubfinderTimeoutAborts(t *testing.T) {
 		t.Skip("仅 Windows")
 	}
 	dir := t.TempDir()
-	// 假 subfinder：睡 5 秒（ping 本机回环，零外网）
+	// 假 subfinder：睡 ~30 秒（ping 本机回环，零外网）。无 CommandContext 时
+	// RunSubfinder 会阻塞满 30s；修复后 ~300ms 即返回。阈值取 5s：远小于
+	// 30s（判别力充足）又给并行测试负载留足余量（不误报）。
 	stub := filepath.Join(dir, "subfinder.cmd")
-	if err := os.WriteFile(stub, []byte("@echo off\r\nping -n 6 127.0.0.1 -w 1000 >nul\r\n"), 0o755); err != nil {
+	if err := os.WriteFile(stub, []byte("@echo off\r\nping -n 31 127.0.0.1 -w 1000 >nul\r\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	start := time.Now()
 	subs, err := RunSubfinder(stub, "stub.example", 300*time.Millisecond)
 	elapsed := time.Since(start)
-	if elapsed > 3*time.Second {
+	if elapsed > 5*time.Second {
 		t.Fatalf("timeout 未生效：RunSubfinder 阻塞了 %v（应 ~300ms 返回）", elapsed)
 	}
 	if err == nil && len(subs) > 0 {

@@ -161,7 +161,10 @@ func TestRunFallbackChainWithSubfinderAbsent(t *testing.T) {
 		defer srv.Close()
 		CrtShURL = srv.URL + "/?q=%%25.%s&output=json"
 		out := t.TempDir()
-		got := Run("stub.example.com", out)
+		got, err := Run("stub.example.com", out)
+		if err != nil {
+			t.Fatal(err)
+		}
 		if len(got) != 3 {
 			t.Fatalf("降级链结果 = %v", got)
 		}
@@ -185,7 +188,7 @@ func TestRunSubfinderFailureNotFatal(t *testing.T) {
 		srv := crtShStub(t, crtShFixture, 0)
 		defer srv.Close()
 		CrtShURL = srv.URL + "/?q=%%25.%s&output=json"
-		if got := Run("stub.example.com", t.TempDir()); len(got) != 3 {
+		if got, err := Run("stub.example.com", t.TempDir()); err != nil || len(got) != 3 {
 			t.Fatalf("subfinder 失败不应影响主链: %v", got)
 		}
 	})
@@ -202,7 +205,10 @@ func TestRunSubfinderMergedSorted(t *testing.T) {
 		srv := crtShStub(t, `[{"name_value":"mmm.m.example"}]`, 0)
 		defer srv.Close()
 		CrtShURL = srv.URL + "/?q=%%25.%s&output=json"
-		got := Run("m.example", t.TempDir())
+		got, err := Run("m.example", t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
 		want := []string{"aaa.m.example", "mmm.m.example", "zzz.m.example"}
 		if strings.Join(got, "|") != strings.Join(want, "|") {
 			t.Fatalf("合并结果 = %v, want %v", got, want)

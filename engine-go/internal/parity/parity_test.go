@@ -48,7 +48,7 @@ sys.path.insert(0, 'src')
 from modules import netutil
 print(json.dumps(netutil.baseline(sys.argv[1], timeout=5), ensure_ascii=False))
 `, base)
-		goB := netutil.Baseline(base, 5*time.Second)
+		goB := netutil.Baseline(base, 5*time.Second, nil)
 		if py["kind"] != wantKind || goB.Kind != wantKind {
 			t.Errorf("[%s] kind: py=%v go=%s, want %s", sc, py["kind"], goB.Kind, wantKind)
 			continue

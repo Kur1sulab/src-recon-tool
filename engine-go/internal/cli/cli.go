@@ -5,6 +5,7 @@
 package cli
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"net"
@@ -77,10 +78,8 @@ func Run(args []string) int {
 		progressFile = os.Getenv("RECON_PROGRESS_FILE")
 	}
 	cmd := rest[0]
-	if cmd == "help" { // Go 侧自有帮助子命令：等价 argparse 阶段退出，不发事件
-		fmt.Print(helpText)
-		return 0
-	}
+	// fix3（audit low#6）：argparse 无 help 子命令——`recon.py help` 是未知
+	// 选择，解析阶段 exit 2（不发事件）；-h/--help 全局帮助仍 exit 0
 	if !knownCmds[cmd] {
 		// 对齐 argparse：未知子命令在解析阶段 exit 2，事件流不启动
 		fmt.Printf("[*] 未知子命令: %q\n\n", cmd)
@@ -116,8 +115,8 @@ func dispatch(cmd string, rest []string) int {
 		domain := fs.String("d", "", "")
 		domainAlias := fs.String("domain", "", "")
 		verify := fs.Bool("verify", false, "枚举后立即做存活验证（DNS + HTTP）")
-		if !parseOrUsage(fs, rest, cmd, "subdomain -d <domain> [--verify]") {
-			return 2
+		if c := parseOrUsage(fs, rest, cmd, "subdomain -d <domain> [--verify]"); c != -1 {
+			return c
 		}
 		d := pickAliasLastWins(rest, map[string]*string{"-d": domain, "--domain": domainAlias})
 		if d == "" {
@@ -128,7 +127,9 @@ func dispatch(cmd string, rest []string) int {
 			fmt.Printf("[!] 输出目录创建失败: %v\n", err)
 			return 1 // 对齐 Python：os.makedirs 抛 OSError 未捕获 → exit 1
 		}
-		subdomain.Run(d, out)
+		if _, err := subdomain.Run(d, out); err != nil {
+			return 1 // fix3：写盘失败 → fail 事件 + exit 1（对齐 Python safe_write 抛错）
+		}
 		if *verify {
 			subdomain.RunVerify(out, 8, true)
 		}
@@ -140,8 +141,8 @@ func dispatch(cmd string, rest []string) int {
 		domainAlias := fs.String("domain", "", "")
 		workers := fs.Int("w", 8, "")
 		workersAlias := fs.Int("workers", 8, "")
-		if !parseOrUsage(fs, rest, cmd, "verify -d <domain> [-w workers]") {
-			return 2
+		if c := parseOrUsage(fs, rest, cmd, "verify -d <domain> [-w workers]"); c != -1 {
+			return c
 		}
 		d := pickAliasLastWins(rest, map[string]*string{"-d": domain, "--domain": domainAlias})
 		if d == "" {
@@ -159,8 +160,8 @@ func dispatch(cmd string, rest []string) int {
 		fs := newFlagSet()
 		u := fs.String("u", "", "")
 		uAlias := fs.String("url", "", "")
-		if !parseOrUsage(fs, rest, cmd, "fingerprint -u <url>") {
-			return 2
+		if c := parseOrUsage(fs, rest, cmd, "fingerprint -u <url>"); c != -1 {
+			return c
 		}
 		url := pickAliasLastWins(rest, map[string]*string{"-u": u, "--url": uAlias})
 		if url == "" {
@@ -183,8 +184,8 @@ func dispatch(cmd string, rest []string) int {
 		fs := newFlagSet()
 		domain := fs.String("d", "", "")
 		domainAlias := fs.String("domain", "", "")
-		if !parseOrUsage(fs, rest, cmd, "asset -d <domain>") {
-			return 2
+		if c := parseOrUsage(fs, rest, cmd, "asset -d <domain>"); c != -1 {
+			return c
 		}
 		d := pickAliasLastWins(rest, map[string]*string{"-d": domain, "--domain": domainAlias})
 		if d == "" {
@@ -202,8 +203,8 @@ func dispatch(cmd string, rest []string) int {
 		fs := newFlagSet()
 		ip := fs.String("i", "", "")
 		ipAlias := fs.String("ip", "", "")
-		if !parseOrUsage(fs, rest, cmd, "reverse -i <ip>") {
-			return 2
+		if c := parseOrUsage(fs, rest, cmd, "reverse -i <ip>"); c != -1 {
+			return c
 		}
 		target := pickAliasLastWins(rest, map[string]*string{"-i": ip, "--ip": ipAlias})
 		if target == "" {
@@ -228,8 +229,8 @@ func dispatch(cmd string, rest []string) int {
 		fs := newFlagSet()
 		domain := fs.String("d", "", "")
 		domainAlias := fs.String("domain", "", "")
-		if !parseOrUsage(fs, rest, cmd, "icp -d <domain>") {
-			return 2
+		if c := parseOrUsage(fs, rest, cmd, "icp -d <domain>"); c != -1 {
+			return c
 		}
 		d := pickAliasLastWins(rest, map[string]*string{"-d": domain, "--domain": domainAlias})
 		if d == "" {
@@ -253,8 +254,8 @@ func dispatch(cmd string, rest []string) int {
 		fs := newFlagSet()
 		u := fs.String("u", "", "")
 		uAlias := fs.String("url", "", "")
-		if !parseOrUsage(fs, rest, cmd, "api -u <url>") {
-			return 2
+		if c := parseOrUsage(fs, rest, cmd, "api -u <url>"); c != -1 {
+			return c
 		}
 		url := pickAliasLastWins(rest, map[string]*string{"-u": u, "--url": uAlias})
 		if url == "" {
@@ -265,15 +266,17 @@ func dispatch(cmd string, rest []string) int {
 			fmt.Printf("[!] 输出目录创建失败: %v\n", err)
 			return 1
 		}
-		apiunauth.RunAPI(url, out, true)
+		if _, err := apiunauth.RunAPI(url, out, true); err != nil {
+			return 1 // fix3：写盘失败 → fail 事件 + exit 1
+		}
 		return 0
 
 	case "paths": // recon.py:191-192：paths -u/--url
 		fs := newFlagSet()
 		u := fs.String("u", "", "")
 		uAlias := fs.String("url", "", "")
-		if !parseOrUsage(fs, rest, cmd, "paths -u <url>") {
-			return 2
+		if c := parseOrUsage(fs, rest, cmd, "paths -u <url>"); c != -1 {
+			return c
 		}
 		url := pickAliasLastWins(rest, map[string]*string{"-u": u, "--url": uAlias})
 		if url == "" {
@@ -284,15 +287,17 @@ func dispatch(cmd string, rest []string) int {
 			fmt.Printf("[!] 输出目录创建失败: %v\n", err)
 			return 1
 		}
-		paths.RunPaths(url, out)
+		if _, err := paths.RunPaths(url, out); err != nil {
+			return 1 // fix3：写盘失败 → fail 事件 + exit 1
+		}
 		return 0
 
 	case "poc": // recon.py:198-199：poc -t/--target -p/--poc
 		fs := newFlagSet()
 		target := fs.String("t", "", "")
 		pocFile := fs.String("p", "", "")
-		if !parseOrUsage(fs, rest, cmd, "poc -t <target> -p <poc>") {
-			return 2
+		if c := parseOrUsage(fs, rest, cmd, "poc -t <target> -p <poc>"); c != -1 {
+			return c
 		}
 		if *target == "" || *pocFile == "" {
 			return missingArgs(cmd, "poc -t <target> -p <poc>")
@@ -305,8 +310,8 @@ func dispatch(cmd string, rest []string) int {
 		target := fs.String("t", "", "")
 		targetAlias := fs.String("target", "", "")
 		domainAlias := fs.String("d", "", "")
-		if !parseOrUsage(fs, rest, cmd, "report -t <target>") {
-			return 2
+		if c := parseOrUsage(fs, rest, cmd, "report -t <target>"); c != -1 {
+			return c
 		}
 		t := pickAliasLastWins(rest, map[string]*string{"-t": target, "--target": targetAlias, "-d": domainAlias})
 		if t == "" {
@@ -317,7 +322,9 @@ func dispatch(cmd string, rest []string) int {
 			fmt.Printf("[!] 输出目录创建失败: %v\n", err)
 			return 1
 		}
-		report.RunReport(out, t)
+		if report.RunReport(out, t) == "" {
+			return 1 // fix3：report.md 写盘失败（RunReport 以 "" 标记）→ fail 事件 + exit 1
+		}
 		return 0
 
 	case "all", "jsintel", "portscan":
@@ -395,10 +402,7 @@ func PickBase(host string) string {
 			continue
 		}
 		r := netutil.Fetch(checked, netutil.FetchOpt{Timeout: 10 * time.Second, Follow: true,
-			HopCheck: func(next string) error {
-				_, err := netutil.CheckHTTPURL(next, true)
-				return err
-			}})
+			HopCheck: netutil.HopPolicy(checked)})
 		if r.OK && r.Status > 0 && r.Status < 500 {
 			return checked
 		}
@@ -418,12 +422,20 @@ type discard struct{}
 
 func (discard) Write(p []byte) (int, error) { return len(p), nil }
 
-func parseOrUsage(fs *flag.FlagSet, args []string, cmd, usage string) bool {
-	if err := fs.Parse(args); err != nil {
-		fmt.Printf("[!] 参数错误: %v\n  用法: recon-go %s\n", err, usage)
-		return false
+func parseOrUsage(fs *flag.FlagSet, args []string, cmd, usage string) int {
+	err := fs.Parse(args)
+	if err == nil {
+		return -1
 	}
-	return true
+	if errors.Is(err, flag.ErrHelp) {
+		// fix3（audit low#6）：子命令内 -h/--help 对齐 argparse——打印本命令
+		// 用法后 exit 0（此前 flag 包报参数错误 exit 2）
+		fmt.Printf("用法: recon-go %s\n", usage)
+		fs.PrintDefaults()
+		return 0
+	}
+	fmt.Printf("[!] 参数错误: %v\n  用法: recon-go %s\n", err, usage)
+	return 2
 }
 
 func missingArgs(cmd, usage string) int {

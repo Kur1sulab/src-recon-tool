@@ -84,6 +84,16 @@ def safe_filename(s: str) -> str:
     return s
 
 
+def _redact_url(u: str) -> str:
+    """fix3（audit low#8）：query 可能携带 api-key 等凭据，错误信息只保留到
+    path 为止，不回显 query（与 Go urlcheck.go 同步脱敏）。"""
+    for ch in ("?", "#"):
+        i = u.find(ch)
+        if i >= 0:
+            return u[:i] + "?…"
+    return u
+
+
 def check_http_url(url: str, allow_private: bool = False) -> str:
     """请求前 URL 边界校验（SSRF 纪律）：
       1) 只放行 http/https 远程协议——杜绝 file:// 等本地协议被拼进探测目标；
@@ -102,7 +112,7 @@ def check_http_url(url: str, allow_private: bool = False) -> str:
     try:
         p = _split(u)
     except ValueError:
-        raise ValueError(f"非法 URL: {u[:80]!r}")
+        raise ValueError(f"非法 URL: {_redact_url(u)!r}")
     if p.scheme not in ("http", "https") or not p.netloc:
         raise ValueError(f"非法探测目标（仅允许 http/https 远程地址）: {u[:80]!r}")
     host = p.hostname

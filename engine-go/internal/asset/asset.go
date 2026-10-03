@@ -67,7 +67,9 @@ func ParseHunterArr(arr []map[string]any) []string {
 
 // fofaFetch fetch+解析（URL 由调用方校验后传入），对齐 asset.py:31-39。
 func fofaFetch(u string) []string {
-	r := netutil.Fetch(u, netutil.FetchOpt{Timeout: 20 * time.Second})
+	// fix3（audit low#5）：Python fetch 默认 follow=True——端点 3xx 时
+	// Python 拿最终 200 数据，Go 此前停 302 报"请求失败: HTTP 302"
+	r := netutil.Fetch(u, netutil.FetchOpt{Timeout: 20 * time.Second, Follow: true})
 	if !(r.OK && r.Status == 200 && r.Body != "") {
 		reason := r.Err
 		if reason == "" {
@@ -94,7 +96,8 @@ func fofaFetch(u string) []string {
 
 // hunterFetch fetch+解析（URL 由调用方校验后传入），对齐 asset.py:49-58。
 func hunterFetch(u string) []string {
-	r := netutil.Fetch(u, netutil.FetchOpt{Timeout: 20 * time.Second})
+	// fix3（audit low#5）：同 fofaFetch——对齐 Python follow 默认值
+	r := netutil.Fetch(u, netutil.FetchOpt{Timeout: 20 * time.Second, Follow: true})
 	if !(r.OK && r.Status == 200 && r.Body != "") {
 		reason := r.Err
 		if reason == "" {

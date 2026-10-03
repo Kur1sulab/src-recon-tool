@@ -142,7 +142,7 @@ func collectNames(n int, get func(int) []string, domain string) []string {
 // 通道插在链后（存在才用、失败只告警），不改变 Python 原降级链的触发条件
 // （即：OneForAll 无结果时 crt.sh 链照走，subfinder 只做并集补充）。
 // 源名与计数打印对齐，结果去重排序后 SafeWrite 到 subdomains.txt。
-func Run(domain, out string) []string {
+func Run(domain, out string) ([]string, error) {
 	// 入口污点闸（污点门禁可建模的 sanitizer 形态）：CLI/上层传入的 domain
 	// 进入任何通道前做形状白名单——非空、≤253、无路径分隔符/悬浮点组件/
 	// 控制字符。非法输入直接返回空（各通道内的同名拦截为第二道纵深）。
@@ -150,7 +150,7 @@ func Run(domain, out string) []string {
 		strings.ContainsAny(d, `/\`) || strings.Contains(d, "..") ||
 		strings.ContainsFunc(d, func(r rune) bool { return r <= 0x20 || r == 0x7f }) {
 		fmt.Printf("[!] 非法域名（形状校验未过，全部通道拦截）: %q\n", domain)
-		return nil
+		return nil, nil
 	}
 	seen := map[string]bool{}
 	var subs []string
@@ -205,11 +205,12 @@ func Run(domain, out string) []string {
 	}
 	path, err := netutil.SafeWrite(out, "subdomains.txt", content)
 	if err != nil {
+		// fix3（audit medium#4）：上抛 → CLI exit 1 + fail 事件，对齐 Python safe_write 抛 ValueError
 		fmt.Printf("[!] 子域列表写盘失败: %v\n", err)
-		path = "-"
+		return nil, err
 	}
 	fmt.Printf("[+] 子域枚举完成（%s，%d 个）-> %s\n", src, len(subs), path)
-	return subs
+	return subs, nil
 }
 
 // marshalPretty 供 verify.go 共用（ensure_ascii=False + indent=2 语义）。
