@@ -1,0 +1,190 @@
+package ui
+
+import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"recon-native/internal/store"
+)
+
+// newTestSession 造一个可用测试会话：repoRoot 放假 recon.py 桩，
+// Command 接缝换成假进程（立即退出、零外网），Python 用假路径 + 假 LookPath 直通。
+func newTestSession(t *testing.T) *Session {
+	t.Helper()
+	repoRoot := t.TempDir()
+	p := filepath.Join(repoRoot, "src", "recon.py")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte("# stub\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := NewSession(repoRoot, t.TempDir(), `C:\fake\python.exe`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Runner.Command = func(name string, args ...string) *exec.Cmd {
+		return exec.Command("cmd", "/c", "exit", "/b", "0")
+	}
+	return s
+}
+
+func TestCreateTaskRejectsOffWhitelistTarget(t *testing.T) {
+	s := newTestSession(t)
+	id, err := s.CreateTask("evil.example.com", "paths", "")
+	if err == nil {
+		t.Fatal("白名单外目标应被拒绝")
+	}
+	if !strings.Contains(err.Error(), "白名单") {
+		t.Fatalf("错误应说明白名单原因，得 %q", err.Error())
+	}
+	if id != "" {
+		t.Fatalf("拒绝时不应返回任务 ID，得 %q", id)
+	}
+	if n := len(s.Store.List()); n != 0 {
+		t.Fatalf("拒绝的任务不应入库，得 %d 条", n)
+	}
+}
+
+func TestCreateTaskRejectsUnknownModule(t *testing.T) {
+	s := newTestSession(t)
+	if _, err := s.CreateTask("xycovo.com", "poc", ""); err == nil {
+		t.Fatal("九模块之外的子命令应被拒绝")
+	}
+	if n := len(s.Store.List()); n != 0 {
+		t.Fatalf("拒绝的任务不应入库，得 %d 条", n)
+	}
+}
+
+func TestCreateTaskRejectsTargetFlagInArgs(t *testing.T) {
+	s := newTestSession(t)
+	if _, err := s.CreateTask("127.0.0.1:8799/real", "api", "-u http://xycovo.com"); err == nil {
+		t.Fatal("可选参数里夹带目标旗标应被拒绝")
+	}
+	if n := len(s.Store.List()); n != 0 {
+		t.Fatalf("拒绝的任务不应入库，得 %d 条", n)
+	}
+}
+
+func TestCreateTaskNormalizesURLTarget(t *testing.T) {
+	s := newTestSession(t)
+	id, err := s.CreateTask("http://127.0.0.1:8799/real", "api", "")
+	if err != nil {
+		t.Fatalf("白名单内 URL 目标应放行: %v", err)
+	}
+	got, ok := s.Store.Get(id)
+	if !ok {
+		t.Fatal("任务应已入库")
+	}
+	if got.Target != "http://127.0.0.1:8799/real" {
+		t.Fatalf("url 类模块应补 http:// 前缀，得 %q", got.Target)
+	}
+	if got.Status != store.StatusCreated && got.Status != store.StatusRunning {
+		t.Fatalf("新任务状态应为 created/running，得 %q", got.Status)
+	}
+}
+
+func TestCreateTaskSubdomainRejectsURLTarget(t *testing.T) {
+	s := newTestSession(t)
+	if _, err := s.CreateTask("http://xycovo.com", "subdomain", ""); err == nil {
+		t.Fatal("子域模块的目标应为裸域名，URL 应被拒绝")
+	}
+}
+
+func TestStopTaskIdempotent(t *testing.T) {
+	s := newTestSession(t)
+	if _, err := s.CreateTask("xycovo.com", "icp", ""); err != nil {
+		t.Fatalf("建任务失败: %v", err)
+	}
+	tasks := s.Store.List()
+	if len(tasks) != 1 {
+		t.Fatalf("应有 1 条任务，得 %d", len(tasks))
+	}
+	// 假进程已退出：Stop 对进程表缺失的任务按幂等成功处理
+	if err := s.StopTask(tasks[0].ID); err != nil {
+		t.Fatalf("进程表缺失时 Stop 应幂等成功，得 %v", err)
+	}
+	if err := s.StopTask("no-such-id"); err == nil {
+		t.Fatal("不存在的任务应报错")
+	}
+}
+
+func TestModulesNineAndUnique(t *testing.T) {
+	seen := map[string]bool{}
+	for _, m := range Modules {
+		if seen[m.Key] {
+			t.Fatalf("模块 %q 重复", m.Key)
+		}
+		seen[m.Key] = true
+		if m.Label == "" || m.Desc == "" {
+			t.Fatalf("模块 %q 缺中文名或说明", m.Key)
+		}
+	}
+	if len(Modules) != 9 {
+		t.Fatalf("应有 9 个模块，得 %d", len(Modules))
+	}
+}
+
+func TestStatusTextChinese(t *testing.T) {
+	cases := map[string]string{
+		store.StatusCreated: "已创建",
+		store.StatusRunning: "运行中",
+		store.StatusDone:    "已完成",
+		store.StatusFail:    "失败",
+		store.StatusStopped: "已停止",
+		"weird":             "weird",
+	}
+	for in, want := range cases {
+		if got := StatusText(in); got != want {
+			t.Fatalf("StatusText(%q) = %q, 期望 %q", in, got, want)
+		}
+	}
+}
+
+func TestTaskRowsNewestFirst(t *testing.T) {
+	now := float64(time.Now().UnixMilli()) / 1e3
+	tasks := []store.Task{
+		{ID: "old", Target: "xycovo.com", Cmd: "icp", Status: store.StatusDone, CreatedAt: now - 100},
+		{ID: "new", Target: "xycovo.com", Cmd: "api", Status: store.StatusRunning, CreatedAt: now},
+	}
+	rows := TaskRows(tasks)
+	if len(rows) != 2 {
+		t.Fatalf("应有 2 行，得 %d", len(rows))
+	}
+	if rows[0].ID != "new" || rows[1].ID != "old" {
+		t.Fatalf("应按创建时间倒序，得 %v", rows)
+	}
+	if rows[0].Status != "运行中" || rows[1].Status != "已完成" {
+		t.Fatalf("状态列应为中文，得 %+v", rows)
+	}
+}
+
+func TestResultRowsFromProgress(t *testing.T) {
+	t0 := time.Date(2026, 10, 4, 15, 4, 5, 0, time.Local)
+	ts := float64(t0.UnixMilli()) / 1e3
+	task := store.Task{ID: "t1", Progress: []store.ProgressEvent{
+		{Ts: ts, Module: "pipeline", Event: "pipeline_start", Detail: "api"},
+		{Ts: ts + 1, Module: "api", Event: "start", Detail: "http://127.0.0.1:8799/real"},
+		{Ts: ts + 2, Module: "api", Event: "found", Detail: "swagger /v3/api-docs"},
+	}}
+	rows := ResultRows(task)
+	if len(rows) != 3 {
+		t.Fatalf("应有 3 行，得 %d", len(rows))
+	}
+	if rows[0].Time != "15:04:05" {
+		t.Fatalf("时间列应格式化为时分秒，得 %q", rows[0].Time)
+	}
+	if rows[0].Module != "流水线" || rows[2].Module != "API 面" {
+		t.Fatalf("模块列应显示中文名，得 %q / %q", rows[0].Module, rows[2].Module)
+	}
+	if rows[2].Event != "found" || rows[2].Detail != "swagger /v3/api-docs" {
+		t.Fatalf("末行字段不符: %+v", rows[2])
+	}
+	if got := ResultRows(store.Task{}); len(got) != 0 {
+		t.Fatalf("无进度的任务应得 0 行，得 %d", len(got))
+	}
+}
