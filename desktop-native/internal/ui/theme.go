@@ -4,6 +4,7 @@ import (
 	"image"
 	"image/color"
 	"os"
+	"unicode/utf8"
 
 	"gioui.org/font"
 	"gioui.org/font/gofont"
@@ -183,16 +184,50 @@ func fillRect(gtx layout.Context, c color.NRGBA) layout.Dimensions {
 	return layout.Dimensions{Size: size}
 }
 
-// card 圆角面板底（r3 大卡 / r2 输入井），内容居上铺满。
-func card(gtx layout.Context, bg color.NRGBA, radius unit.Dp, w layout.Widget) layout.Dimensions {
+// card 圆角面板底（r3 大卡 / r2 输入井）。宽度铺满当前约束（定宽槽或
+// 全宽由调用方约束决定），高度跟内容自然高。底色宽度必须自己钉到
+// Max.X：Stack 会把 Stacked 内容的 Min 清零、把 Expanded 的 Min 只抬到
+// 内容自然尺寸（gioui.org@v0.10.3 layout/stack.go:53,74），按 Min 铺色
+// 会漏出「文字有多宽、底就有多宽」的次生缺口（真窗口验收复现）。
+func card(gtx layout.Context, bg colorNRGBA, radius unit.Dp, w layout.Widget) layout.Dimensions {
 	return layout.Stack{Alignment: layout.NW}.Layout(gtx,
 		layout.Expanded(func(gtx layout.Context) layout.Dimensions {
+			gtx.Constraints.Min.X = gtx.Constraints.Max.X
 			defer clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, gtx.Dp(radius)).Push(gtx.Ops).Pop()
 			paint.Fill(gtx.Ops, bg)
 			return layout.Dimensions{Size: gtx.Constraints.Min}
 		}),
 		layout.Stacked(w),
 	)
+}
+
+// cardFill 满分配区圆角面板：底色吃满当前 Flex 槽位的全部空间。
+// 只用于区域容器（侧栏 / 主区 / 顶栏这类"该区域整体一个底色"的地方）；
+// 内容型面板（统计卡 / 提示条）仍用 card，高度跟内容走。
+// 为什么铺不满：Gio Stack 的 Expanded 子件只把 Constraints.Min 抬到
+// Stacked 子件的自然尺寸（gioui.org@v0.10.3 layout/stack.go:74），底色若
+// 按 Min 铺就只有内容那么高——所以铺满必须由底色 widget 自己把 Min
+// 钉到 Max。此即真窗口验收「客户区大片纯白 / 顶栏被剥开」的根因。
+func cardFill(gtx layout.Context, bg colorNRGBA, radius unit.Dp, w layout.Widget) layout.Dimensions {
+	gtx.Constraints.Min = gtx.Constraints.Max
+	return layout.Stack{Alignment: layout.NW}.Layout(gtx,
+		layout.Expanded(func(gtx layout.Context) layout.Dimensions {
+			gtx.Constraints.Min = gtx.Constraints.Max
+			defer clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, gtx.Dp(radius)).Push(gtx.Ops).Pop()
+			paint.Fill(gtx.Ops, bg)
+			return layout.Dimensions{Size: gtx.Constraints.Min}
+		}),
+		layout.Stacked(w),
+	)
+}
+
+// focusRing 2dp 品牌青焦点环（描边不填色，不影响布局； Gio material
+// 控件不自带焦点可视，验收「Tab 焦点不可辨」的修复件）。
+func focusRing(gtx layout.Context, size image.Point, radius unit.Dp) {
+	p := clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(radius))
+	st := clip.Stroke{Path: p.Path(gtx.Ops), Width: float32(gtx.Dp(unit.Dp(2)))}
+	defer st.Op().Push(gtx.Ops).Pop()
+	paint.Fill(gtx.Ops, ColAcc)
 }
 
 // hairline 1dp 发丝线（行分隔 / 面板内线）。
@@ -212,10 +247,22 @@ func label(th *Theme, s string, size unit.Sp, col color.NRGBA) material.LabelSty
 	return l
 }
 
-// monoLabel 等宽数据标签（仅用于 ASCII 数据列；字体缺失回退默认）。
-func monoLabel(th *Theme, s string, size unit.Sp, col color.NRGBA) material.LabelStyle {
+// isASCII 字符串是否纯 ASCII。Consolas 无中文字形，混排中文走等宽
+// 字体会逐字缺字留空（真窗口验收的「白名　内才　」丢字），必须回退。
+func isASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= utf8.RuneSelf {
+			return false
+		}
+	}
+	return true
+}
+
+// monoLabel 等宽数据标签：纯 ASCII 才上 Consolas（DESIGN.md 纪律：
+// 等宽只用于 ASCII 数据列）；含中文/全角标点回退默认字体（雅黑）。
+func monoLabel(th *Theme, s string, size unit.Sp, col colorNRGBA) material.LabelStyle {
 	l := label(th, s, size, col)
-	if th.HasMono {
+	if th.HasMono && isASCII(s) {
 		l.Font.Typeface = MonoTF
 	}
 	return l

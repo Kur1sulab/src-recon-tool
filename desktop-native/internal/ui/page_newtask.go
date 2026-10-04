@@ -131,8 +131,10 @@ func moduleGrid(a *appUI) layout.Widget {
 }
 
 // inputWell 输入井：s1 底 + r2 圆角 + 内嵌编辑器。
+// 编辑器持焦时在井外包 2dp 品牌青焦点环（Gio material 控件不自带
+// 焦点可视，Tab 遍历先前不可辨——真窗口验收 M2）。
 func inputWell(gtx layout.Context, th *Theme, ed *widget.Editor, size unit.Sp, hint string) layout.Dimensions {
-	return card(gtx, ColS1, R2, func(gtx layout.Context) layout.Dimensions {
+	body := func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Min.Y = gtx.Dp(unit.Dp(40))
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
 		return layout.Inset{Top: unit.Dp(9), Bottom: unit.Dp(9), Left: Sp3, Right: Sp3}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -142,7 +144,12 @@ func inputWell(gtx layout.Context, th *Theme, ed *widget.Editor, size unit.Sp, h
 			e.HintColor = ColTx3
 			return e.Layout(gtx)
 		})
-	})
+	}
+	dims := card(gtx, ColS1, R2, body)
+	if gtx.Focused(ed) {
+		focusRing(gtx, dims.Size, R2)
+	}
+	return dims
 }
 
 // errBanner 错误横条（err-bg 底 + err 字）。

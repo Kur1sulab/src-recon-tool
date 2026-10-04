@@ -12,19 +12,21 @@ import (
 )
 
 // pageTools 工具页：模块说明 + mock 靶站探测 + 产物目录。
+// 页内容比一屏高，包在垂直 List 里滚动——此前一次性 Flex 平铺，
+// 底部「数据落在哪」面板被窗口底边截断（真窗口验收 H4）。
 func (a *appUI) pageTools(gtx layout.Context) layout.Dimensions {
 	_, _, _, _, mock, _, mockPro := a.env.snapshot()
 
-	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+	blocks := []layout.Widget{
+		func(gtx layout.Context) layout.Dimensions {
 			return titleLabel(a.th, "工具").Layout(gtx)
-		}),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+		},
+		func(gtx layout.Context) layout.Dimensions {
 			return layout.Inset{Top: Sp4}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				return sectionLabel(a.th, "扫描模块（九个，全部本地出数）").Layout(gtx)
 			})
-		}),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+		},
+		func(gtx layout.Context) layout.Dimensions {
 			return layout.Inset{Top: Sp2}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				out := make([]layout.FlexChild, 0, len(Modules))
 				for _, m := range Modules {
@@ -54,8 +56,8 @@ func (a *appUI) pageTools(gtx layout.Context) layout.Dimensions {
 				}
 				return layout.Flex{Axis: layout.Vertical}.Layout(gtx, out...)
 			})
-		}),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+		},
+		func(gtx layout.Context) layout.Dimensions {
 			return layout.Inset{Top: Sp5}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				return card(gtx, ColS2, R3, func(gtx layout.Context) layout.Dimensions {
 					gtx.Constraints.Min.X = gtx.Constraints.Max.X
@@ -90,14 +92,14 @@ func (a *appUI) pageTools(gtx layout.Context) layout.Dimensions {
 					})
 				})
 			})
-		}),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+		},
+		func(gtx layout.Context) layout.Dimensions {
 			return layout.Inset{Top: Sp4}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				return a.depsCard(gtx)
 			})
-		}),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return layout.Inset{Top: Sp4}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		},
+		func(gtx layout.Context) layout.Dimensions {
+			return layout.Inset{Top: Sp4, Bottom: Sp4}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				return card(gtx, ColS2, R3, func(gtx layout.Context) layout.Dimensions {
 					gtx.Constraints.Min.X = gtx.Constraints.Max.X
 					return layout.Inset{Top: Sp3, Bottom: Sp3, Left: Sp4, Right: Sp4}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -123,8 +125,12 @@ func (a *appUI) pageTools(gtx layout.Context) layout.Dimensions {
 					})
 				})
 			})
-		}),
-	)
+		},
+	}
+	list := &layout.List{Axis: layout.Vertical}
+	return list.Layout(gtx, len(blocks), func(gtx layout.Context, i int) layout.Dimensions {
+		return blocks[i](gtx)
+	})
 }
 
 // mockButton 探测按钮（次按钮观感：s3 底）。

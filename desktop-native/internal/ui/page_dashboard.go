@@ -68,8 +68,11 @@ func (a *appUI) pageDashboard(gtx layout.Context) layout.Dimensions {
 	)
 }
 
-// statCards 四张统计卡。
+// statCards 四张统计卡：紧凑定宽（180dp）左对齐，不随窗口宽平摊——
+// 此前 Flexed(1) 均分 1792px 全宽，卡间距（~342px）远大于卡宽，
+// 扫读成本高（真窗口验收 M1）。
 func statCards(gtx layout.Context, th *Theme, total, running, done, failed int) layout.Dimensions {
+	const cardW = unit.Dp(180)
 	cards := []struct {
 		name  string
 		val   int
@@ -83,8 +86,13 @@ func statCards(gtx layout.Context, th *Theme, total, running, done, failed int) 
 	out := make([]layout.FlexChild, 0, 4)
 	for _, c := range cards {
 		c := c
-		out = append(out, layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+		out = append(out, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return layout.Inset{Right: Sp3}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				// 定宽钉在 card 的入参约束上：card 内部 Stack 会清掉内容的
+				// Min，钉在内容上无效；card 返回尺寸经 Constrain 抬到 Min，
+				// 底色（card 内铺满 Max.X）随之铺满整卡。
+				gtx.Constraints.Min.X = gtx.Dp(cardW)
+				gtx.Constraints.Max.X = gtx.Constraints.Min.X
 				return card(gtx, ColS2, R3, func(gtx layout.Context) layout.Dimensions {
 					gtx.Constraints.Min.Y = gtx.Dp(unit.Dp(72))
 					return layout.Inset{Top: Sp3, Left: Sp4, Bottom: Sp3}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {

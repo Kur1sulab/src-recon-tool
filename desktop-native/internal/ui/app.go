@@ -14,6 +14,7 @@ import (
 	"gioui.org/io/key"
 	"gioui.org/layout"
 	"gioui.org/op"
+	"gioui.org/op/clip"
 	"gioui.org/unit"
 	"gioui.org/widget"
 	"gioui.org/widget/material"
@@ -336,10 +337,17 @@ func (a *appUI) selectedRowsCount() int {
 // updateKeys 全局键盘流：Esc 停止选中任务、Ctrl+1..5 切页。
 // Tab / Shift+Tab 焦点遍历由 Gio 输入树内建（widget.Clickable 注册
 // key.FocusFilter，widget/button.go:151），无需应用层处理。
+//
+// Optional 放行其余修饰键（Shift/Alt/Super）：keyFilterMatch 要求事件
+// 修饰集必须是 Required∪Optional 的子集，前台置窗技巧遗留的卡死 Alt、
+// 或 AltGr（=Ctrl+Alt）都会让纯 Required=Ctrl 的 chord 被丢弃——真窗口
+// 验收三次「Ctrl+数字失效」均发生在 ALT 技巧置前台的会话首按，即此机制。
+// 快捷键本身不依赖这些修饰键，放行无副作用。
 func (a *appUI) updateKeys(gtx layout.Context) {
-	filters := []event.Filter{key.Filter{Name: key.NameEscape}}
+	loose := key.ModShift | key.ModAlt | key.ModSuper
+	filters := []event.Filter{key.Filter{Name: key.NameEscape, Optional: loose}}
 	for _, n := range []string{"1", "2", "3", "4", "5"} {
-		filters = append(filters, key.Filter{Required: key.ModCtrl, Name: key.Name(n)})
+		filters = append(filters, key.Filter{Required: key.ModCtrl, Optional: loose, Name: key.Name(n)})
 	}
 	for {
 		e, ok := gtx.Event(filters...)
@@ -371,23 +379,42 @@ func (a *appUI) layout(gtx layout.Context) layout.Dimensions {
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 			return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return card(gtx, ColS1, 0, a.sidebar)
+					// 侧栏宽度自钉；高度由 cardFill 吃满行槽位（否则导航以下白底）
+					gtx.Constraints.Min.X = gtx.Dp(SideW)
+					gtx.Constraints.Max.X = gtx.Constraints.Min.X
+					return cardFill(gtx, ColS1, 0, a.sidebar)
 				}),
 				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-					return card(gtx, ColS0, 0, a.mainArea)
+					return cardFill(gtx, ColS0, 0, a.mainArea)
 				}),
 			)
 		}),
 	)
 }
 
-// topbar 顶栏：产品名 + 铭牌。
+// topbar 顶栏：产品名 + 铭牌。整条钉在 TopH 高、底色铺满——
+// 此前 Expanded 只铺到文字自然高（Stack 语义，见 cardFill 注），
+// 52dp 里只画中间 32px，上下各留一道白带（真窗口验收 H2）。
+// 底部发丝线直接画在底色 widget 里：hairlineAtBottom 曾在构造
+// Stack 子件时被急切求值，用外层约束画线并让线高参与 Stack 尺寸
+// 计算，是顶栏塌缩的帮凶。
 func (a *appUI) topbar(gtx layout.Context) layout.Dimensions {
-	h := gtx.Dp(TopH)
-	gtx.Constraints.Min.Y = h
+	gtx.Constraints.Min.X = gtx.Constraints.Max.X
+	gtx.Constraints.Min.Y = gtx.Dp(TopH)
+	gtx.Constraints.Max.Y = gtx.Constraints.Min.Y
 	return layout.Stack{Alignment: layout.W}.Layout(gtx,
 		layout.Expanded(func(gtx layout.Context) layout.Dimensions {
-			return fillRect(gtx, ColS1)
+			gtx.Constraints.Min = gtx.Constraints.Max
+			dims := fillRect(gtx, ColS1)
+			// 底部 1dp 发丝线（铺底后原地画，不再单独占 Stack 子件）
+			h := gtx.Dp(unit.Dp(1))
+			line := image.Rectangle{
+				Min: image.Pt(0, dims.Size.Y-h),
+				Max: image.Pt(dims.Size.X, dims.Size.Y),
+			}
+			defer clip.Rect(line).Push(gtx.Ops).Pop()
+			paintFill(gtx, ColLn1)
+			return dims
 		}),
 		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Min.X = gtx.Constraints.Max.X
@@ -403,19 +430,7 @@ func (a *appUI) topbar(gtx layout.Context) layout.Dimensions {
 				}),
 			)
 		}),
-		layout.Stacked(hairlineAtBottom(gtx, ColLn1)),
 	)
-}
-
-// hairlineAtBottom 在栈底画一条发丝线。
-func hairlineAtBottom(gtx layout.Context, c colorNRGBA) layout.Widget {
-	return func(gtx layout.Context) layout.Dimensions {
-		h := gtx.Dp(unit.Dp(1))
-		size := image.Pt(gtx.Constraints.Min.X, h)
-		defer clipRect(gtx, size)()
-		paintFill(gtx, c)
-		return layout.Dimensions{Size: size}
-	}
 }
 
 // sidebar 侧栏导航（五页）。
