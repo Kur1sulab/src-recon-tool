@@ -1,6 +1,6 @@
-# recon-desktop —— src-recon-tool 桌面壳（Go）
+# 信息收集工具（recon-desktop）—— src-recon-tool 桌面壳（Go）
 
-把现有 Python 侦察流水线包成一个桌面应用：`go build` 一把出单个 `recon-desktop.exe`，
+把现有 Python 信息收集流水线包成一个桌面应用：`go build` 一把出单个 `recon-desktop.exe`，
 应用本体（HTTP 服务 / 进程管理 / WebView2 壳）全是 Go，运行时零 node 依赖；
 扫描引擎仍是既有 `python src/recon.py <子命令>`，由 Go 以子进程方式管理。
 

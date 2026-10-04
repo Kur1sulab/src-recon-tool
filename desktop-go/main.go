@@ -43,7 +43,7 @@ func main() {
 	flag.Parse()
 
 	if !*dev && !acquireSingleInstance() {
-		messageBox("侦察工作台已在运行中，请勿重复打开。")
+		messageBox("信息收集工具已在运行中，请勿重复打开。")
 		return
 	}
 
@@ -114,7 +114,7 @@ func main() {
 		AutoFocus: true,
 		DataPath:  filepath.Join(dataDir, "webview"),
 		WindowOptions: webview2.WindowOptions{
-			Title:  "侦察工作台 · src-recon-tool",
+			Title:  "信息收集工具 · src-recon-tool",
 			Width:  wcfg.W,
 			Height: wcfg.H,
 			Center: true,

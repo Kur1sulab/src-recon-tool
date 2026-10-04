@@ -256,7 +256,7 @@
   App.registerView = function (name, impl) { App.views[name] = impl || {}; };
 
   var VIEW_TITLE = {
-    tasks: "任务列表", new: "新建侦察", detail: "任务详情",
+    tasks: "任务列表", new: "新建任务", detail: "任务详情",
     evidence: "证据包", settings: "设置"
   };
   // Ctrl+1..5 对应的页面顺序
@@ -315,8 +315,16 @@
         return;
       }
     }
-    // Esc 停止运行中任务
+    // Esc 停止运行中任务。输入框/下拉/多行文本/可编辑区里的 Esc 是编辑语义
+    // （清空输入、取消候选词），不触发全局停任务——否则一边打字一边误停扫描。
+    // IME 组合中（isComposing）同理放行。
     if (e.key === "Escape") {
+      var t = e.target;
+      var tag = t && t.tagName ? String(t.tagName).toLowerCase() : "";
+      if (e.isComposing || tag === "input" || tag === "textarea" ||
+          tag === "select" || (t && t.isContentEditable)) {
+        return;
+      }
       App.stopMostRelevantRunning();
     }
   }

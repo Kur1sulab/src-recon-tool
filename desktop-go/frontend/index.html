@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'">
-<title>侦察工作台 · src-recon-tool</title>
+<title>信息收集工具 · src-recon-tool</title>
 <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
@@ -19,7 +19,7 @@
         <path d="M12 1.5v4M12 18.5v4M1.5 12h4M18.5 12h4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
       </svg>
       <div class="brand-text">
-        <div class="brand-name">侦察工作台</div>
+        <div class="brand-name">信息收集工具</div>
         <div class="brand-sub">src-recon-tool</div>
       </div>
     </div>
@@ -31,7 +31,7 @@
       </a>
       <a class="nav-item" href="#/new" data-nav="new">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="6.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 3v3.5M12 17.5V21M3 12h3.5M17.5 12H21" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
-        <span>新建侦察</span><kbd>Ctrl+2</kbd>
+        <span>新建任务</span><kbd>Ctrl+2</kbd>
       </a>
       <a class="nav-item" href="#/detail" data-nav="detail">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-7 4 14 3-7h4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -79,18 +79,18 @@
             <div class="panel-title">扫描任务</div>
             <div class="panel-actions">
               <button class="btn" id="tasksRefresh" type="button">刷新</button>
-              <a class="btn btn-primary" href="#/new">新建侦察</a>
+              <a class="btn btn-primary" href="#/new">新建任务</a>
             </div>
           </div>
           <div class="table-wrap" id="tasksTableWrap"></div>
         </div>
       </section>
 
-      <!-- ② 新建侦察 -->
+      <!-- ② 新建任务 -->
       <section class="view" id="view-new" hidden>
         <div class="panel">
           <div class="panel-head">
-            <div class="panel-title">新建侦察任务</div>
+            <div class="panel-title">新建任务</div>
           </div>
           <form id="newScanForm" novalidate>
             <div class="form-row">

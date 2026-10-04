@@ -209,7 +209,7 @@
       App.h("div", { class: "panel-head" },
         App.h("div", { class: "panel-title", text: "未选择任务" })),
       App.h("div", { class: "task-picker" }, sel, btn),
-      App.h("div", { class: "panel-foot", text: "选择一个任务查看模块进度、产物与日志，或先到「新建侦察」发起扫描。" }));
+      App.h("div", { class: "panel-foot", text: "选择一个任务查看模块进度、产物与日志，或先到「新建任务」发起扫描。" }));
     document.getElementById("detailBody").appendChild(pickerEl);
     API.listScans().then(function (scans) {
       sel.textContent = "";

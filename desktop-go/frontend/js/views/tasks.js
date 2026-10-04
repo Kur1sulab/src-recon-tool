@@ -132,8 +132,8 @@
     if (!scans.length) {
       wrap.appendChild(App.h("div", { class: "empty-hint" },
         App.h("div", { text: "还没有扫描任务。" }),
-        App.h("div", { text: "到「新建侦察」页面对授权目标发起第一次扫描。" }),
-        App.h("a", { class: "btn btn-primary", href: "#/new", text: "前往新建侦察" })));
+        App.h("div", { text: "到「新建任务」页面对授权目标发起第一次扫描。" }),
+        App.h("a", { class: "btn btn-primary", href: "#/new", text: "前往新建任务" })));
       return;
     }
     var thead = App.h("thead", null, App.h("tr", null,

@@ -179,6 +179,6 @@ func messageBox(text string) {
 	if err != nil {
 		return
 	}
-	utf16Title, _ := syscall.UTF16PtrFromString("侦察工作台")
+	utf16Title, _ := syscall.UTF16PtrFromString("信息收集工具")
 	procMessageBoxW.Call(0, uintptr(unsafe.Pointer(utf16Text)), uintptr(unsafe.Pointer(utf16Title)), 0x40) // MB_ICONINFORMATION
 }
