@@ -139,10 +139,14 @@ func Run() error {
 
 	a := newAppUI(sess)
 	a.th = NewTheme()
-	// 环境自检放后台：不挡首帧
+	// 环境自检放后台：不挡首帧。runner 先捕获局部变量再进 goroutine——
+	// 此刻事件循环尚未起跑（SetPythonPath 换装 Runner 字段只能发生在
+	// FrameEvent 处理里），goroutine 持有的是不可变快照，与字段写无
+	// 并发，消掉审计 low-2 指出的无同步读写竞争面。
+	runner := a.sess.Runner
 	go func() {
-		py, _ := a.sess.Runner.ResolvePython()
-		found, ver, deps := a.sess.Runner.ProbePython()
+		py, _ := runner.ResolvePython()
+		found, ver, deps := runner.ProbePython()
 		a.env.set(py, ver, found, deps, mockReachable())
 	}()
 

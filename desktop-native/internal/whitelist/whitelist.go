@@ -26,7 +26,11 @@ func Check(target string) (string, error) {
 	if s == "" || len(s) > 200 {
 		return "", errRejected
 	}
-	// 控制字符 / 空白 / 非 ASCII 一律拒绝（URL 只认 ASCII 资产）
+	// 内嵌控制字符 / 非 ASCII 一律拒绝（URL 只认 ASCII 资产）。
+	// 口径对齐（终修轮 P4）：壳层 CreateTask 会先 strings.TrimSpace（含
+	// \v \f NBSP 等 Unicode 空白）再进本闸——首尾空白由壳的粘贴体验
+	// 契约归一，归一后仍是名单内主机、无越闸面；本闸把守的是「内嵌
+	// 控制字符」与「非 ASCII」，两层职责以本注释为界。
 	for _, r := range s {
 		if r <= 0x20 || r == 0x7f || r > 0x7e {
 			return "", errRejected

@@ -84,11 +84,14 @@ func (s *Session) CreateTask(target, cmd, argsRaw string) (string, error) {
 	if !engine.CmdAllowed(cmd) {
 		return "", fmt.Errorf("不支持的模块: %s", cmd)
 	}
-	// 白名单闸：名单外一律拒绝（正点名单硬校验，行为与 desktop-go 完全一致）
-	if _, err := whitelist.Check(target); err != nil {
+	// 白名单闸：名单外一律拒绝（正点名单硬校验，行为与 desktop-go 完全一致）。
+	// 归一化 key 必须接住并作为入库/执行目标（对抗 P3 卫生缺口）：
+	// 校验对象与执行对象一致——双尾点等「等价写法」不再以原始串进 argv。
+	key, err := whitelist.Check(target)
+	if err != nil {
 		return "", fmt.Errorf("目标不在授权白名单，已拒绝（允许: xycovo.com / 47.100.49.228 / 127.0.0.1:8799）")
 	}
-	normalized, err := normalizeTarget(cmd, target)
+	normalized, err := normalizeTarget(cmd, key, target)
 	if err != nil {
 		return "", err
 	}
@@ -217,31 +220,40 @@ func flagName(tk string) string {
 	return strings.ToLower(tk)
 }
 
-// normalizeTarget 按子命令校验形态；url 类缺协议时补 http://。
-func normalizeTarget(cmd, target string) (string, error) {
+// normalizeTarget 按子命令校验目标形态并产出执行目标。
+// 两段式（对抗 P3 卫生缺口）：形态约束（域/IP/URL 形态）看原始串 raw；
+// 执行目标的 host 部分一律用白名单归一化的 key 重建——校验值=执行值，
+// 双尾点等「等价写法」不再以原始串进 argv。url 类的 scheme 与路径/查询
+// 尾巴保留自原始串：尾巴只属于已过闸的名单内主机，不影响白名单等价性
+// （mock 靶站 http://127.0.0.1:8799/real 的 /real 必须活着）。
+func normalizeTarget(cmd, key, raw string) (string, error) {
 	isURLCmd := cmd == "api" || cmd == "paths" || cmd == "fingerprint" || cmd == "jsintel"
-	lower := strings.ToLower(target)
+	lower := strings.ToLower(raw)
 	switch {
 	case isURLCmd:
-		if !strings.Contains(lower, "://") {
-			return "http://" + target, nil
+		if i := strings.Index(raw, "://"); i >= 0 {
+			rest := raw[i+3:]
+			if j := strings.Index(rest, "/"); j >= 0 {
+				return raw[:i+3] + key + rest[j:], nil
+			}
+			return raw[:i+3] + key, nil
 		}
-		return target, nil
+		return "http://" + key, nil
 	case cmd == "reverse":
-		if strings.ContainsAny(target, "/:") || net.ParseIP(target) == nil {
+		if strings.ContainsAny(raw, "/:") || net.ParseIP(key) == nil {
 			return "", fmt.Errorf("IP 反查的目标应为裸 IP 地址，如 47.100.49.228")
 		}
-		return target, nil
+		return key, nil
 	case cmd == "subdomain" || cmd == "icp":
-		if strings.ContainsAny(target, "/:") {
+		if strings.ContainsAny(raw, "/:") {
 			return "", fmt.Errorf("该模块的目标应为域名（不含协议和端口），如 xycovo.com")
 		}
-		return target, nil
+		return key, nil
 	default: // all / portscan
 		if strings.Contains(lower, "://") {
 			return "", fmt.Errorf("该模块的目标应为域名或 IP（不含协议）")
 		}
-		return target, nil
+		return key, nil
 	}
 }
 

@@ -6,9 +6,11 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -16,6 +18,7 @@ import (
 	"time"
 
 	"recon-native/internal/store"
+	"recon-native/internal/whitelist"
 )
 
 // cmdSet 允许下发的子命令白名单（与桌面端九模块一一对应）。
@@ -38,6 +41,7 @@ type Runner struct {
 	pythonPath string
 	procs      map[string]*exec.Cmd
 	stopping   map[string]bool
+	jobs       map[string]io.Closer // 任务 id → Job Object 句柄（Windows，随壳消亡）
 	sink       Sink
 
 	// 两个接缝：测试注入假进程 / 假 LookPath
@@ -53,6 +57,7 @@ func NewRunner(repoRoot, dataDir, pythonPath string) *Runner {
 		pythonPath: pythonPath,
 		procs:      make(map[string]*exec.Cmd),
 		stopping:   make(map[string]bool),
+		jobs:       make(map[string]io.Closer),
 		Command:    exec.Command,
 		LookPath:   exec.LookPath,
 	}
@@ -101,8 +106,31 @@ func (r *Runner) ResolvePython() (string, error) {
 	return "", errors.New("未找到 Python 解释器（可在设置里指定，或设 RECON_PYTHON 环境变量）")
 }
 
+// probeTimeout 单次自检子进程的上限：解释器挂起/启动极慢时宁可报
+// 「自检超时」也不能把 Gio 事件循环无限期冻住（审计 low-3）。
+const probeTimeout = 10 * time.Second
+
+// runBounded 带超时跑一次子进程：超时树杀并返回错误（审计 low-3）。
+// 经统一的 Command 接缝构造，测试假件不受影响。
+func (r *Runner) runBounded(c *exec.Cmd, d time.Duration) error {
+	if err := c.Start(); err != nil {
+		return err
+	}
+	done := make(chan error, 1)
+	go func() { done <- c.Wait() }()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(d):
+		_ = killTree(c)
+		<-done
+		return fmt.Errorf("自检超时（%s）", d)
+	}
+}
+
 // ProbePython 探测解释器可用性与关键依赖（requests/yaml），供设置页自检。
-// 路径先解析并校验为真实存在的可执行文件，再经固定 argv 数组调用（无 shell 参与）。
+// 路径先解析并校验为真实存在的可执行文件，再经固定 argv 数组调用（无 shell
+// 参与）；每次调用带超时上限（probeTimeout），挂起的解释器不会拖死 UI。
 func (r *Runner) ProbePython() (found bool, version string, depsOK bool) {
 	py, err := r.ResolvePython()
 	if err != nil {
@@ -120,12 +148,12 @@ func (r *Runner) ProbePython() (found bool, version string, depsOK bool) {
 	var buf bytes.Buffer
 	c.Stdout = &buf
 	c.Stderr = &buf
-	if err := c.Run(); err == nil {
+	if err := r.runBounded(c, probeTimeout); err == nil {
 		version = strings.TrimSpace(buf.String())
 	}
 	dep := r.Command(py, "-c", "import requests, yaml") // 固定代码串 + 参数数组
 	dep.Dir = r.repoRoot
-	depsOK = dep.Run() == nil
+	depsOK = r.runBounded(dep, probeTimeout) == nil
 	return found, version, depsOK
 }
 
@@ -160,8 +188,22 @@ func BuildCmdArgs(cmd, target string, extra []string) ([]string, error) {
 	return append(head, extra...), nil
 }
 
+// taskIDRe 任务 id 形态：字母数字开头结尾，中间允许点/连字符/下划线，
+// 全长 ≤80——id 会拼进 progress/log 文件路径，畸形 id 在引擎层就地拒绝。
+var taskIDRe = regexp.MustCompile(`^[0-9A-Za-z]([0-9A-Za-z._-]{0,78}[0-9A-Za-z])?$`)
+
 // Start 起一个扫描进程并挂上监视 goroutine。成功后任务状态置 running。
 func (r *Runner) Start(id, cmd, target string, extra []string) error {
+	// 引擎层纵深闸（终修轮，审计 adv-low-1）：正常流程里调用方
+	// （session.CreateTask）已过白名单闸与参数闸，但本层不信任该前提——
+	// 未来任何新调用方直连 Start，也不至于把名单外目标送进扫描、把
+	// 畸形 id 拼进 progress/log 文件路径。
+	if _, err := whitelist.Check(target); err != nil {
+		return fmt.Errorf("目标未通过白名单校验: %w", err)
+	}
+	if !taskIDRe.MatchString(id) {
+		return fmt.Errorf("任务 ID 含不允许的字符: %q", id)
+	}
 	python, err := r.ResolvePython()
 	if err != nil {
 		return err
@@ -219,6 +261,13 @@ func (r *Runner) Start(id, cmd, target string, extra []string) error {
 	delete(r.stopping, id)
 	r.mu.Unlock()
 
+	// P2（对抗实锤）：进程挂进「随壳消亡」的 Job Object——壳被硬杀时
+	// 句柄随进程回收而关闭，KILL_ON_JOB_CLOSE 让扫描进程树同步终局，
+	// 不再留孤儿扫描。挂载失败不阻断起扫描（killTree 兜底仍在）。
+	if job, jerr := attachJob(c.Process.Pid); jerr == nil {
+		r.setJob(id, job)
+	}
+
 	done := make(chan error, 1)
 	go func() {
 		done <- c.Wait()
@@ -259,6 +308,7 @@ func (r *Runner) monitor(id string, c *exec.Cmd, progressPath string, done <-cha
 	r.mu.Lock()
 	delete(r.procs, id)
 	r.mu.Unlock()
+	r.clearJob(id) // 进程已退出，收掉 Job 句柄（对已退出进程无害）
 
 	// 兜底：进程没了却没等到 pipeline_end（崩溃/被外部杀）→ 补一条 fail 收尾
 	if !sawEnd {
@@ -303,20 +353,53 @@ func (r *Runner) Stop(id string) error {
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrNotRunning, id)
 	}
-	return killTree(c)
+	err := killTree(c)
+	// 树杀后收掉 Job 句柄（对已退出进程无害；killTree 若失败，
+	// KILL_ON_JOB_CLOSE 仍让整树在句柄关闭时终局）。
+	r.clearJob(id)
+	return err
 }
 
-// StopAll 收尾用：杀掉全部运行中的进程树。
+// StopAll 收尾用：杀掉全部运行中的进程树，并收掉全部 Job 句柄。
 func (r *Runner) StopAll() {
 	r.mu.Lock()
 	procs := make([]*exec.Cmd, 0, len(r.procs))
+	jobs := make([]io.Closer, 0, len(r.jobs))
 	for id, c := range r.procs {
 		r.stopping[id] = true
 		procs = append(procs, c)
 	}
+	for id, j := range r.jobs {
+		jobs = append(jobs, j)
+		delete(r.jobs, id)
+	}
 	r.mu.Unlock()
 	for _, c := range procs {
 		_ = killTree(c)
+	}
+	for _, j := range jobs {
+		_ = j.Close() // KILL_ON_JOB_CLOSE：句柄关闭即整树终局
+	}
+}
+
+// setJob 登记任务的 Job 句柄（调用方持锁与否不限，内部自锁）。
+func (r *Runner) setJob(id string, j io.Closer) {
+	if j == nil {
+		return
+	}
+	r.mu.Lock()
+	r.jobs[id] = j
+	r.mu.Unlock()
+}
+
+// clearJob 收掉并注销任务的 Job 句柄（幂等；句柄缺失为无操作）。
+func (r *Runner) clearJob(id string) {
+	r.mu.Lock()
+	j, ok := r.jobs[id]
+	delete(r.jobs, id)
+	r.mu.Unlock()
+	if ok && j != nil {
+		_ = j.Close()
 	}
 }
 

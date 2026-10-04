@@ -20,3 +20,20 @@
   可改写 RECON_PYTHON/设置页持久化值」的通道，此流即成外部可控执行点，
   届时必须在 SetPythonPath 入口加路径存在性与可执行性校验并重评。
 - **背书**：用户（编排方）2026-10-04 原生轮修复会话确认按 by-design 记账。
+
+## ADV-20261004-02 壳被硬杀 → 扫描进程孤儿（已修复入账）
+
+- **发现**：对抗轮 P2 实锤——壳（recon-native.exe）被任务管理器结束/崩溃时，
+  扫描子进程变孤儿继续对目标发包。复刻实验：按 runner.go 执行模式起
+  cmd→ping 树，taskkill /F 硬杀父进程后 PING.EXE 存活，谱系指向已死父链；
+  代码佐证：runner.go killTree 仅按需逐树杀、StopAll 只挂优雅 DestroyEvent
+  路径、全仓无 Job Object。
+- **修复**：`internal/engine/job_windows.go`——Start 起进程即挂 Windows
+  Job Object（JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE），壳无论优雅退出还是被
+  硬杀，句柄随进程回收而关闭，Job 内整树（含 python 起的子进程）同步终局；
+  Stop/StopAll/monitor 收尾均关句柄，killTree 保留为兜底与非 Windows 路径
+  （job_other.go 空实现）。挂载失败（宿主 Job 限制）不阻断起扫描。
+- **回归**：`internal/engine/job_windows_test.go` TestJobObjectKillsTreeOnClose
+  ——真 cmd→ping 树挂 Job，关句柄后 tasklist 全局 PING.EXE 存量归零。
+- **状态**：已修复（2026-10-04 终修轮），非残留风险。
+
