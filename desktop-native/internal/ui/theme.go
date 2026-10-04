@@ -88,6 +88,11 @@ func clipRect(gtx layout.Context, size image.Point) func() {
 	return clip.Rect{Max: size}.Push(gtx.Ops).Pop
 }
 
+// clipCircle 压入直径 d 的圆形裁剪并返回弹出函数（LED 状态点用）。
+func clipCircle(gtx layout.Context, d int) func() {
+	return clip.UniformRRect(image.Rectangle{Max: image.Pt(d, d)}, d/2).Push(gtx.Ops).Pop
+}
+
 // 包内简写别名。
 type labelStyle = material.LabelStyle
 

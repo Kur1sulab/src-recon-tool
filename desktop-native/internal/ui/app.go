@@ -10,6 +10,8 @@ import (
 
 	"gioui.org/app"
 	"gioui.org/font"
+	"gioui.org/io/event"
+	"gioui.org/io/key"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/unit"
@@ -83,8 +85,20 @@ type appUI struct {
 	tasks      []store.Task
 	selID      string
 	taskClicks map[string]*widget.Clickable
+	tabClicks  map[string]*widget.Clickable // 模块 tab（含 "" 全部）
 	stopBtn    widget.Clickable
 	lastPoll   time.Time
+	moduleTab  widget.Enum // 值为模块 key；"" = 全部
+	listPage   int         // 任务列表当前页
+	rowsPage   int         // 过程表当前页
+	prevList   widget.Clickable
+	nextList   widget.Clickable
+	prevRows   widget.Clickable
+	nextRows   widget.Clickable
+	exportBtn  widget.Clickable
+	exportBusy bool
+	exportMsg  string
+	exportDone chan exportResult // 后台打包线程 → 事件循环（缓冲 1）
 
 	// 工具页
 	mockBtn   widget.Clickable
@@ -95,6 +109,14 @@ type appUI struct {
 	checkBtn widget.Clickable
 	saveBtn  widget.Clickable
 	pyResult string
+}
+
+// exportResult 证据包后台导出的回执。
+type exportResult struct {
+	path, mode string
+	packed     int
+	skipped    int
+	err        error
 }
 
 // Run 启动主窗口（阻塞至窗口关闭）。
@@ -143,8 +165,11 @@ func newAppUI(sess *Session) *appUI {
 		sess:       sess,
 		navBtns:    make([]widget.Clickable, len(pageNames)),
 		taskClicks: map[string]*widget.Clickable{},
+		tabClicks:  map[string]*widget.Clickable{},
+		exportDone: make(chan exportResult, 1),
 	}
-	a.moduleSel.Value = "all"
+	a.moduleTab.Value = ""    // 结果页 tab：默认「全部」
+	a.moduleSel.Value = "all" // 新建任务页：默认「全部模块」
 	a.targetEd.SingleLine = true
 	a.argsEd.SingleLine = true
 	a.pyEd.SingleLine = true
@@ -154,6 +179,7 @@ func newAppUI(sess *Session) *appUI {
 
 // update 处理一帧内的全部交互。
 func (a *appUI) update(gtx layout.Context) {
+	a.updateKeys(gtx)
 	// 侧栏导航
 	for i := range a.navBtns {
 		if a.navBtns[i].Clicked(gtx) {
@@ -174,6 +200,46 @@ func (a *appUI) update(gtx layout.Context) {
 		}
 	}
 
+	// 证据包后台回执（非阻塞收一次）
+	select {
+	case r := <-a.exportDone:
+		a.exportBusy = false
+		if r.err != nil {
+			a.exportMsg = "导出失败：" + r.err.Error()
+		} else {
+			where := map[string]string{"existing": "（复用引擎现成证据包）", "packed": "（现打聚合包）"}[r.mode]
+			a.exportMsg = fmt.Sprintf("已导出 %s%s：打包 %d 条，跳过 %d 条", r.path, where, r.packed, r.skipped)
+		}
+	default:
+	}
+
+	// 模块 tab 点击
+	for _, m := range tabKeys() {
+		c := a.tabClick(m.Key)
+		if c.Clicked(gtx) {
+			a.moduleTab.Value = m.Key
+			a.listPage = 1 // 换筛选回第一页
+		}
+	}
+
+	// 结果页分页
+	listRows := len(TaskRows(a.listTasks()))
+	_, _, listPages := PageBounds(listRows, a.listPage, PageSize)
+	if a.prevList.Clicked(gtx) && a.listPage > 1 {
+		a.listPage--
+	}
+	if a.nextList.Clicked(gtx) && a.listPage < listPages {
+		a.listPage++
+	}
+	rowsCount := a.selectedRowsCount()
+	_, _, rowsPages := PageBounds(rowsCount, a.rowsPage, PageSize)
+	if a.prevRows.Clicked(gtx) && a.rowsPage > 1 {
+		a.rowsPage--
+	}
+	if a.nextRows.Clicked(gtx) && a.rowsPage < rowsPages {
+		a.rowsPage++
+	}
+
 	// 新建任务：开始
 	if a.startBtn.Clicked(gtx) {
 		a.newErr, a.newOK = "", ""
@@ -184,6 +250,7 @@ func (a *appUI) update(gtx layout.Context) {
 			a.newOK = "任务已开始：" + id
 			a.selID = id
 			a.page = pageResults
+			a.rowsPage = 1
 		}
 	}
 
@@ -193,6 +260,19 @@ func (a *appUI) update(gtx layout.Context) {
 			a.newErr = err.Error()
 			a.page = pageResults
 		}
+	}
+
+	// 结果页：导出证据包（后台跑，回执经 channel 回事件循环）
+	if a.exportBtn.Clicked(gtx) && !a.exportBusy && a.selID != "" {
+		a.exportBusy = true
+		a.exportMsg = ""
+		id := a.selID
+		sess := a.sess
+		done := a.exportDone
+		go func() {
+			path, mode, packed, skipped, err := sess.ExportEvidence(id)
+			done <- exportResult{path: path, mode: mode, packed: packed, skipped: skipped, err: err}
+		}()
 	}
 
 	// 工具页：mock 靶站探测（白名单内本机目标）
@@ -218,7 +298,67 @@ func (a *appUI) update(gtx layout.Context) {
 		if err := a.sess.SetPythonPath(a.pyEd.Text()); err != nil {
 			a.pyResult = err.Error()
 		} else {
-			a.pyResult = "已切换解释器：" + a.pyEd.Text()
+			a.pyResult = "已保存并生效（重启后仍生效）：" + a.pyEd.Text()
+		}
+	}
+}
+
+// tabKeys 模块 tab 取值集："" 全部 + 九模块。
+func tabKeys() []ModuleInfo {
+	out := []ModuleInfo{{Key: "", Label: "全部"}}
+	return append(out, Modules...)
+}
+
+// tabClick 返回 tab 自己的 Clickable（每帧恰一次点击处理）。
+func (a *appUI) tabClick(key string) *widget.Clickable {
+	c, ok := a.tabClicks[key]
+	if !ok {
+		c = &widget.Clickable{}
+		a.tabClicks[key] = c
+	}
+	return c
+}
+
+// listTasks 当前 tab 筛选后的任务（最新在前）。
+func (a *appUI) listTasks() []store.Task {
+	return FilterTasksByModule(a.tasks, a.moduleTab.Value)
+}
+
+// selectedRowsCount 选中任务的过程行数（分页用）。
+func (a *appUI) selectedRowsCount() int {
+	t, ok := a.sess.Task(a.selID)
+	if !ok {
+		return 0
+	}
+	return len(ResultRows(t))
+}
+
+// updateKeys 全局键盘流：Esc 停止选中任务、Ctrl+1..5 切页。
+// Tab / Shift+Tab 焦点遍历由 Gio 输入树内建（widget.Clickable 注册
+// key.FocusFilter，widget/button.go:151），无需应用层处理。
+func (a *appUI) updateKeys(gtx layout.Context) {
+	filters := []event.Filter{key.Filter{Name: key.NameEscape}}
+	for _, n := range []string{"1", "2", "3", "4", "5"} {
+		filters = append(filters, key.Filter{Required: key.ModCtrl, Name: key.Name(n)})
+	}
+	for {
+		e, ok := gtx.Event(filters...)
+		if !ok {
+			break
+		}
+		ev, isKey := e.(key.Event)
+		if !isKey || ev.State != key.Press {
+			continue
+		}
+		switch ev.Name {
+		case key.NameEscape:
+			if t, ok := a.sess.Task(a.selID); ok && (t.Status == "running" || t.Status == "created") {
+				_ = a.sess.StopTask(a.selID)
+			}
+		case key.Name("1"), key.Name("2"), key.Name("3"), key.Name("4"), key.Name("5"):
+			if int(ev.Name[0]-'1') < len(pageNames) {
+				a.page = int(ev.Name[0] - '1')
+			}
 		}
 	}
 }

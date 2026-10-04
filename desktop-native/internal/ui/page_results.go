@@ -9,11 +9,16 @@ import (
 	"gioui.org/widget/material"
 )
 
-// pageResults 结果页：任务列表（可选中）+ 选中任务的过程表格。
+// pageResults 结果页：模块 tab + 任务列表（分页）+ 选中任务过程表（分页）
+// + 证据包导出入口。
 func (a *appUI) pageResults(gtx layout.Context) layout.Dimensions {
-	rows := TaskRows(a.tasks)
+	filtered := a.listTasks()
+	rows := TaskRows(filtered)
+	start, end, listPages := PageBounds(len(rows), a.listPage, PageSize)
+	pageRows := rows[start:end]
 
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+		// 标题行：结果 + 证据包导出
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -31,29 +36,145 @@ func (a *appUI) pageResults(gtx layout.Context) layout.Dimensions {
 						return layout.Dimensions{}
 					}
 					btn := material.Button(a.th.Theme, &a.stopBtn, "停止选中任务")
-					btn.Background = ColErrLo
-					btn.Color = ColTx1
+					btn.Background = ColErrBg
+					btn.Color = ColErr
+					btn.CornerRadius = R2
 					return btn.Layout(gtx)
+				}),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					return layout.Inset{Left: Sp2}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						labelTxt, bg, fg := "导出证据包", ColS3, ColTx1
+						if a.exportBusy {
+							labelTxt, bg, fg = "正在打包…", ColS1, ColTx3
+						}
+						btn := material.Button(a.th.Theme, &a.exportBtn, labelTxt)
+						btn.Background = bg
+						btn.Color = fg
+						btn.CornerRadius = R2
+						return btn.Layout(gtx)
+					})
 				}),
 			)
 		}),
+		// 导出回执 / 错误行
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return layout.Inset{Top: Sp4}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				if len(rows) == 0 {
-					return emptyHint(gtx, a.th, "还没有任务记录")
+			if a.exportMsg == "" {
+				return layout.Dimensions{}
+			}
+			return layout.Inset{Top: Sp2}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				col := ColOk
+				if len(a.exportMsg) > 3 && a.exportMsg[:4] == "导出失败" {
+					col = ColErr
 				}
-				// 任务列表固定高度（10 行左右），避免把过程表挤没
-				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						gtx.Constraints.Max.Y = gtx.Dp(unit.Dp(11 * 30))
-						return a.taskListTable(gtx, rows)
-					}),
-				)
+				l := monoLabel(a.th, a.exportMsg, Fs12, col)
+				l.MaxLines = 2
+				return l.Layout(gtx)
+			})
+		}),
+		// 模块 tab 行
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return layout.Inset{Top: Sp4}.Layout(gtx, a.moduleTabRow)
+		}),
+		// 任务列表（分页）
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return layout.Inset{Top: Sp2}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				if len(rows) == 0 {
+					if len(a.tasks) == 0 {
+						return emptyHint(gtx, a.th, "还没有任务记录——到「新建任务」页发起第一次信息收集")
+					}
+					return emptyHint(gtx, a.th, "该模块还没有任务记录，点上方 tab 切回「全部」看看")
+				}
+				return a.taskListTable(gtx, pageRows)
 			})
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			if listPages <= 0 {
+				return layout.Dimensions{}
+			}
+			return layout.Inset{Top: Sp1}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return a.pagerRow(gtx, a.listPage, listPages, &a.prevList, &a.nextList)
+			})
+		}),
+		// 选中任务详情 + 过程表（分页）
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return layout.Inset{Top: Sp5}.Layout(gtx, a.taskDetail)
 		}),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			_, _, rowsPages := PageBounds(a.selectedRowsCount(), a.rowsPage, PageSize)
+			if rowsPages <= 1 {
+				return layout.Dimensions{}
+			}
+			return layout.Inset{Top: Sp1}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return a.pagerRow(gtx, a.rowsPage, rowsPages, &a.prevRows, &a.nextRows)
+			})
+		}),
+	)
+}
+
+// moduleTabRow 模块 tab：胶囊按钮排，选中 acc-bg/亮青，未选 s2/次文。
+func (a *appUI) moduleTabRow(gtx layout.Context) layout.Dimensions {
+	tabs := tabKeys()
+	chipW := gtx.Dp(unit.Dp(88))
+	out := make([]layout.FlexChild, 0, len(tabs))
+	for _, m := range tabs {
+		m := m
+		out = append(out, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			c := a.tabClick(m.Key)
+			active := a.moduleTab.Value == m.Key
+			bg, fg := ColS2, ColTx2
+			switch {
+			case active:
+				bg, fg = ColAccBg, ColAccHi
+			case c.Hovered():
+				bg, fg = ColS3, ColTx1
+			}
+			gtx.Constraints.Min.X = chipW
+			gtx.Constraints.Min.Y = gtx.Dp(unit.Dp(26))
+			bl := material.ButtonLayout(a.th.Theme, c)
+			bl.Background = bg
+			bl.CornerRadius = unit.Dp(999) // 胶囊（r-full）
+			return bl.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					l := label(a.th, m.Label, Fs11, fg)
+					if active {
+						l.Font.Weight = mediumWeight
+					}
+					return l.Layout(gtx)
+				})
+			})
+		}))
+	}
+	return layout.Flex{Axis: layout.Horizontal, Spacing: layout.SpaceEnd}.Layout(gtx, out...)
+}
+
+// pagerRow 分页条：‹ 上一页 / 第 x / y 页 / 下一页 ›。
+func (a *appUI) pagerRow(gtx layout.Context, page, pages int, prev, next *widget.Clickable) layout.Dimensions {
+	btn := func(c *widget.Clickable, txt string, enabled bool) layout.FlexChild {
+		return layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			bg, fg := ColS3, ColTx1
+			if !enabled {
+				bg, fg = ColS1, ColTx3
+			}
+			gtx.Constraints.Min.X = gtx.Dp(unit.Dp(84))
+			gtx.Constraints.Min.Y = gtx.Dp(unit.Dp(26))
+			bl := material.ButtonLayout(a.th.Theme, c)
+			bl.Background = bg
+			bl.CornerRadius = R2
+			return bl.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					return label(a.th, txt, Fs11, fg).Layout(gtx)
+				})
+			})
+		})
+	}
+	return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+		btn(prev, "‹ 上一页", page > 1),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return layout.Inset{Left: Sp3, Right: Sp3}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return monoLabel(a.th, fmt.Sprintf("第 %d / %d 页", page, pages), Fs11, ColTx2).Layout(gtx)
+			})
+		}),
+		btn(next, "下一页 ›", page < pages),
 	)
 }
 
@@ -124,11 +245,12 @@ func (a *appUI) taskClick(id string, gtx layout.Context) *widget.Clickable {
 	}
 	if c.Clicked(gtx) {
 		a.selID = id
+		a.rowsPage = 1 // 换任务回过程表第一页
 	}
 	return c
 }
 
-// taskDetail 选中任务的过程表格。
+// taskDetail 选中任务概要 + 过程表（分页）。
 func (a *appUI) taskDetail(gtx layout.Context) layout.Dimensions {
 	if a.selID == "" {
 		return emptyHint(gtx, a.th, "在上方列表点一行查看过程")
@@ -138,6 +260,8 @@ func (a *appUI) taskDetail(gtx layout.Context) layout.Dimensions {
 		return emptyHint(gtx, a.th, "任务已被清理")
 	}
 	rows := ResultRows(t)
+	start, end, _ := PageBounds(len(rows), a.rowsPage, PageSize)
+	pageRows := rows[start:end]
 
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		// 概要卡
@@ -178,15 +302,24 @@ func (a *appUI) taskDetail(gtx layout.Context) layout.Dimensions {
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return layout.Inset{Top: Sp3}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				if len(rows) == 0 {
-					return emptyHint(gtx, a.th, "暂无过程记录")
+					return emptyHint(gtx, a.th, "暂无过程记录（任务刚提交时这里会是空的，跑起来就有）")
 				}
 				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						return sectionLabel(a.th, "过程记录（最新在底部）").Layout(gtx)
+						return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								return sectionLabel(a.th, "过程记录").Layout(gtx)
+							}),
+							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								return layout.Inset{Left: Sp2}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+									return monoLabel(a.th, fmt.Sprintf("共 %d 条", len(rows)), Fs11, ColTx3).Layout(gtx)
+								})
+							}),
+						)
 					}),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						return layout.Inset{Top: Sp2}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-							return resultTable(gtx, a.th, rows)
+							return resultTable(gtx, a.th, pageRows)
 						})
 					}),
 				)
@@ -195,7 +328,7 @@ func (a *appUI) taskDetail(gtx layout.Context) layout.Dimensions {
 	)
 }
 
-// resultTable 过程记录表（List 虚拟化，上万行也不虚）。
+// resultTable 过程记录表（斑马纹，List 虚拟化）。
 func resultTable(gtx layout.Context, th *Theme, rows []ResultRow) layout.Dimensions {
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -206,7 +339,7 @@ func resultTable(gtx layout.Context, th *Theme, rows []ResultRow) layout.Dimensi
 			return hairline(gtx, ColLn1)
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			gtx.Constraints.Max.Y = gtx.Dp(unit.Dp(360))
+			gtx.Constraints.Max.Y = gtx.Dp(unit.Dp(300))
 			list := layout.List{Axis: layout.Vertical}
 			return list.Layout(gtx, len(rows), func(gtx layout.Context, i int) layout.Dimensions {
 				gtx.Constraints.Min.X = gtx.Constraints.Max.X

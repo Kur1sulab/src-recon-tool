@@ -30,10 +30,19 @@ type Session struct {
 }
 
 // NewSession 打开任务库并组装引擎 runner（引擎回调经 sink 回写任务库）。
+// 解释器优先级：settings.json 里用户保存的路径 > 入参（通常来自
+// RECON_PYTHON 环境变量）> PATH 探测。
 func NewSession(repoRoot, dataDir, pythonPath string) (*Session, error) {
 	st, err := store.Open(filepath.Join(dataDir, "tasks.json"))
 	if err != nil {
 		return nil, fmt.Errorf("打开任务库失败: %w", err)
+	}
+	settings, lerr := LoadSettings(dataDir)
+	if lerr != nil {
+		return nil, fmt.Errorf("读取设置失败: %w", lerr)
+	}
+	if settings.PythonPath != "" {
+		pythonPath = settings.PythonPath
 	}
 	r := engine.NewRunner(repoRoot, dataDir, pythonPath)
 	r.SetSink(sessionSink{st: st})
@@ -151,7 +160,8 @@ func (s *Session) resolvePythonOrEmpty() string {
 	return p
 }
 
-// SetPythonPath 切换解释器（重建 runner；有任务运行时拒绝，避免丢进程表）。
+// SetPythonPath 切换解释器并写回 settings.json（重启后仍生效）。
+// 有任务运行时拒绝，避免丢进程表。
 func (s *Session) SetPythonPath(path string) error {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -159,6 +169,9 @@ func (s *Session) SetPythonPath(path string) error {
 	}
 	if n := len(s.Runner.RunningIDs()); n > 0 {
 		return fmt.Errorf("有 %d 个任务正在运行，等它们结束再切换解释器", n)
+	}
+	if err := SaveSettings(s.DataDir, Settings{PythonPath: path}); err != nil {
+		return fmt.Errorf("设置写入失败: %w", err)
 	}
 	r := engine.NewRunner(s.RepoRoot, s.DataDir, path)
 	r.SetSink(sessionSink{st: s.Store})

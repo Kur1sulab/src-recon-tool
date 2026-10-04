@@ -94,6 +94,44 @@ type ResultRow struct {
 	Detail string
 }
 
+// PageSize 结果页两处长表的每页行数（与 desktop-go 前端同规格：50 行/页）。
+const PageSize = 50
+
+// PageBounds 把 (总行数, 页码, 每页行数) 归一成切片边界。页码越界钳到
+// 末页、下限钳到 1；空表返回 (0,0,0)。start/end 为左闭右开下标。
+func PageBounds(total, page, size int) (start, end, pages int) {
+	if total <= 0 || size <= 0 {
+		return 0, 0, 0
+	}
+	pages = (total + size - 1) / size
+	if page < 1 {
+		page = 1
+	}
+	if page > pages {
+		page = pages
+	}
+	start = (page - 1) * size
+	end = start + size
+	if end > total {
+		end = total
+	}
+	return start, end, pages
+}
+
+// FilterTasksByModule 模块 tab 筛选：空串返回原序全量。
+func FilterTasksByModule(tasks []store.Task, module string) []store.Task {
+	if module == "" {
+		return tasks
+	}
+	out := make([]store.Task, 0, len(tasks))
+	for _, t := range tasks {
+		if t.Cmd == module {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
 // ResultRows 把任务的进度事件转成表格行（时间只显示时分秒）。
 func ResultRows(t store.Task) []ResultRow {
 	rows := make([]ResultRow, 0, len(t.Progress))

@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"gioui.org/layout"
 	"gioui.org/widget/material"
@@ -18,6 +19,11 @@ func (a *appUI) pageSettings(gtx layout.Context) layout.Dimensions {
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return layout.Inset{Top: Sp4}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				return a.pythonCard(gtx)
+			})
+		}),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return layout.Inset{Top: Sp4}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return a.outputCard(gtx)
 			})
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -91,6 +97,37 @@ func (a *appUI) pythonCard(gtx layout.Context) layout.Dimensions {
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					return layout.Inset{Top: Sp1}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 						return monoLabel(a.th, fmt.Sprintf("当前生效：%s", path), Fs11, ColTx3).Layout(gtx)
+					})
+				}),
+			)
+		})
+	})
+}
+
+// outputCard 输出目录只读展示（路径由仓库根决定，不在界面里改）。
+func (a *appUI) outputCard(gtx layout.Context) layout.Dimensions {
+	outDir := filepath.Join(a.sess.RepoRoot, "out")
+	evDir := filepath.Join(a.sess.DataDir, "evidence")
+	return card(gtx, ColS2, R3, func(gtx layout.Context) layout.Dimensions {
+		gtx.Constraints.Min.X = gtx.Constraints.Max.X
+		return layout.Inset{Top: Sp3, Bottom: Sp3, Left: Sp4, Right: Sp4}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					return sectionLabel(a.th, "输出目录（扫描产物与证据包落点，只读展示）").Layout(gtx)
+				}),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					return layout.Inset{Top: Sp2}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						return monoLabel(a.th, "扫描产物："+outDir, Fs12, ColTx1).Layout(gtx)
+					})
+				}),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					return layout.Inset{Top: Sp1}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						return monoLabel(a.th, "证据包导出："+evDir, Fs12, ColTx1).Layout(gtx)
+					})
+				}),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					return layout.Inset{Top: Sp1}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						return monoLabel(a.th, "产物目录名按目标清洗生成（与引擎同名规则），结果页可一键导出 zip 证据包", Fs11, ColTx3).Layout(gtx)
 					})
 				}),
 			)
