@@ -129,8 +129,10 @@ func TestModulesNineAndUnique(t *testing.T) {
 			t.Fatalf("模块 %q 缺中文名或说明", m.Key)
 		}
 	}
-	if len(Modules) != 9 {
-		t.Fatalf("应有 9 个模块，得 %d", len(Modules))
+	// 基线轮（2026-10-06）：Modules 表新增第 10 个成员 baseline（域名暴露面
+	// 基线体检，recon-go 专属子命令），结果页 tab 与新建任务页网格随之派生。
+	if len(Modules) != 10 {
+		t.Fatalf("应有 10 个模块，得 %d", len(Modules))
 	}
 }
 

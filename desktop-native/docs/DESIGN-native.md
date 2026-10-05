@@ -96,13 +96,14 @@
 3. **Idle LED 禁上 S3 井底**（2.92:1）：工具页依赖状态点用 Ok/Warn 实心点 + Tx3「检测中」，本轮没有用 Idle 点。
 4. **-lo 描边档只描边、禁作文字**：曾发现停止按钮误用 `ColErrLo` 作底色（骨架轮），本轮已改 `ColErrBg` 底 + `ColErr` 字（对齐生产 `.btn-danger{color:var(--err);border-color:var(--err-lo)}` 的取色语义）；grep 复核 -lo 族在 theme.go 之外零消费。
 
-## 三、五页视觉要点
+## 三、六页视觉要点
 
 1. **仪表盘**：页题 15sp；四张统计卡（s2 底 r3，72dp 高，数字 15sp 等宽、按状态着色）；最近 8 条任务表（表头 11sp Tx2 + 发丝线 + 斑马纹）；白名单卡内目标串用 12sp 等宽 Tx2。
-2. **新建任务**：单卡表单（s2 r3）；标签 12sp Tx2；输入井 s1 r2 高 40dp、文字 14sp Tx1、hint Tx3；模块九宫单选（三列）；可选参数提示随模块联动（11sp Tx3 等宽）；主按钮「开始扫描」青底墨字；错误横条 err-bg/err、成功横条 ok-bg/ok（最多 3 行）。
-3. **结果**：标题行右侧「停止选中任务」（err-bg/err，仅运行中显示）与「导出证据包」（s3 底，打包中变 s1/Tx3「正在打包…」）；导出回执行 12sp 等宽（成绿/败红）；模块 tab 胶囊行（26dp 高，选中 acc-bg/acc-hi + Medium 字重）；任务列表 50 行/页分页（‹ 上一页 / 第 x/y 页 / 下一页 ›，边界钮 s1/Tx3 灰显）；概要卡 + 过程记录表 50 行/页，表头「时间/模块/事件/详情」权重 0.7/0.9/1/3。
+2. **新建任务**：单卡表单（s2 r3）；标签 12sp Tx2；输入井 s1 r2 高 40dp、文字 14sp Tx1、hint Tx3；模块九宫单选（三列，基线轮起为 10 模块四行）；可选参数提示随模块联动（11sp Tx3 等宽）；主按钮「开始扫描」青底墨字；错误横条 err-bg/err、成功横条 ok-bg/ok（最多 3 行）。
+3. **结果**：标题行右侧「停止选中任务」（err-bg/err，仅运行中显示）与「导出证据包」（s3 底，打包中变 s1/Tx3「正在打包…」）；导出回执行 12sp 等宽（成绿/败红）；模块 tab 胶囊行（80dp 定宽 × 26dp 高，横向 List 可滚——11 枚胶囊 880dp ≤ 主区 908dp 全见，选中 acc-bg/acc-hi + Medium 字重）；任务列表 50 行/页分页（‹ 上一页 / 第 x/y 页 / 下一页 ›，边界钮 s1/Tx3 灰显）；概要卡 + 过程记录表 50 行/页，表头「时间/模块/事件/详情」权重 0.7/0.9/1/3；基线任务在过程行尾追加「每检查结论」行（8 行：模块=检查中文名，事件=结论/未运行，详情=[level] 结论文本）。
 4. **工具**：九模块清单（名称 Tx1 / 说明 Tx2 / 子命令键 11sp Tx3 等宽）；外部依赖状态卡（7dp 实心圆点：绿=正常 橙=有问题 灰=检测中，路径行 11sp Tx3 等宽）；数据落点卡（产物目录/证据包目录 12sp 等宽）。
-5. **设置**：Python 卡（输入井 + 「自检」次钮 + 「保存并生效」主钮 + 结论行着色 + 当前生效路径 11sp Tx3 等宽）；输出目录卡（只读展示产物/证据包路径，12sp 等宽 Tx1）；白名单卡（只读清单，13sp 等宽 Tx1，明示「不可在此修改」）；关于卡（三条大白话：是什么/纯本地无 AI/白名单红线）。**没有「界面主题」行。**
+5. **设置**：Python 卡（输入井 + 「自检」次钮 + 「保存并生效」主钮 + 结论行着色 + 当前生效路径 11sp Tx3 等宽）；Go 引擎卡（同构：recon-go.exe 输入井 + 「自检」跑 `recon-go -h` + 「保存并生效」+ 探测路径绿字 + 构建命令 11sp Tx3 等宽「进入仓库 engine-go 目录执行 go build -o recon-go.exe .」——引擎缺失显式给指引不静默）；输出目录卡（只读展示产物/证据包路径，12sp 等宽 Tx1）；关于卡（三条大白话：是什么/纯本地无 AI/白名单红线）。**没有「界面主题」行。**
+6. **暴露面（第六页，基线轮 2026-10-06 新增）**：页题「暴露面」+ 副题「域名暴露面基线体检 · 8 项检查一键跑 · 零凭据」；输入卡（目标域名输入井 + 青底主钮「一键跑全部检查」，运行中灰显 s1/Tx3「检查进行中…」；Go 引擎缺失时 warn 横条给构建指引；错误 err 横条 / 成功 ok 横条带任务 id）；「检查项（8）」分区卡列表（横向 List 可滚），每卡：顶部 6dp 结论色条（level→ColOkBg/ColWarnBg/ColErrBg/ColAccBg 族）+ 8dp 相位 LED + 中文名 + 相位字（未运行/排队中/检查中…/已跳过/执行失败/有结论）+ 检查键 11sp 等宽 + 右缘「原始 JSON ▸/▾」折叠钮；有结论时展示 `[level] 结论文本`（族色字）+ 生成时间 + 风险明细（`· [level] 标题 — 详情`，族色）+ 引擎摘要行（11sp 等宽 Tx2）+ 折叠的原始 JSON（s0 凹井 11sp 等宽，超 2000 字节截断并注明产物路径）。产物契约 = engine-go baseline/result.go 冻结包络；缺文件=「未运行」不编造，error 非空=失败态红字。
 
 ## 四、键盘流
 
@@ -110,15 +111,22 @@
 |---|---|---|
 | Tab / Shift+Tab | 焦点遍历（Gio 输入树内建：Clickable 注册 `key.FocusFilter`，见 gioui.org v0.10.3 widget/button.go:151） | 无需应用层代码 |
 | Esc | 停止选中的运行中任务（无选中/已终态则无动作） | app.go updateKeys：`key.Filter{Name: key.NameEscape}` |
-| Ctrl+1..5 | 切换 仪表盘/新建任务/结果/工具/设置 | app.go updateKeys：`key.Filter{Required: key.ModCtrl, Name: key.Name("1".."5")}` |
+| Ctrl+1..6 | 切换 仪表盘/新建任务/结果/工具/设置/暴露面（键位按 `len(pageNames)` 派生，不再写死） | app.go updateKeys + pageKeyNames/applyPageKey（纯函数，baseline_page_test 钉住） |
 
 ## 五、三态覆盖清单
 
-- **空**：仪表盘无任务/结果页无任务/该模块筛选为空/过程记录为空——各有一句大白话空态卡（emptyHint，s2 r3 居中 Tx3）。
-- **载**：环境自检未回（工具页「检测中…」、设置页「尚未自检」）；证据包导出进行中（按钮变「正在打包…」并拒重复点击，回执经 channel 回事件循环）；数据轮询 400ms 节流。
-- **错**：新建任务校验错误（errBanner，目标格式不合法）；证据包导出失败（红字回执）；停止失败（转结果页红字提示）；settings.json 损坏兜底零值；任务库损坏兜底空库（store 层既有行为）。
+- **空**：仪表盘无任务/结果页无任务/该模块筛选为空/过程记录为空——各有一句大白话空态卡（emptyHint，s2 r3 居中 Tx3）；暴露面页无目标时引导语空态卡、目标无产物时 8 张「未运行」空卡（不编造）。
+- **载**：环境自检未回（工具页「检测中…」、设置页「尚未自检」）；证据包导出进行中（按钮变「正在打包…」并拒重复点击，回执经 channel 回事件循环）；数据轮询 400ms 节流；暴露面页运行中（主钮灰显「检查进行中…」，卡片相位逐检查点亮：排队中/检查中…，后台节拍对任务库快照签名变化即 Invalidate 唤帧）。
+- **错**：新建任务校验错误（errBanner，目标格式不合法）；证据包导出失败（红字回执）；停止失败（转结果页红字提示）；settings.json 损坏兜底零值；任务库损坏兜底空库（store 层既有行为）；暴露面页目标格式错误（err 横条）/ Go 引擎缺失（warn 横条 + 构建命令，不静默）/ 检查级失败（卡红字 fail 态，fail 事件不中断其余检查）；产物 JSON 损坏（「产物解析失败」失败态，不冒充引擎结论）。
 
-## 六、浅色主题换装（2026-10-05，用户裁定改浅色）
+## 六、暴露面仪表盘执行器（2026-10-06，基线轮）
+
+- recon-go.exe baseline 第二子进程：`<recon-go.exe> --progress-file <dataDir>/progress/<id>.jsonl baseline -d <域名>`（--progress-file 在子命令之前；与 python recon.py 九模块并行共存，按子命令选引擎分支）。
+- 解析顺序：settings.go_engine_path > RECON_GO_EXE 环境变量 > repoRoot/engine-go/recon-go.exe 探测；缺失显式报错 + 构建指引（设置页可改，自检跑 `recon-go -h`）。
+- 进度事件与 python 引擎同构：外层 start/done(module=baseline) + 内层每检查 start/done|fail|skipped；聚合流程走完即 done（个别检查 fail 不改终态）；Tailer/monitor 零改动复用。
+- 产物：outDirFor 三方同名目录的 `{secheaders,webfiles,mailsec,archives,sslchain,dnsrec,whois,geoasn}.json`，包络 = engine-go baseline/result.go 冻结 schema（两线对测试不对实现：引擎 schema 单测 + 桌面 baselineview fixture 单测）。
+
+## 七、浅色主题换装（2026-10-05，用户裁定改浅色）
 
 - 色板整块切换为「**浅色工程台 Light Bench**」——逐值转译自 `desktop-go/docs/design-proposals/C-tokens.css` 的 `[data-theme="light"]` 覆盖块（31 令牌，34 组 WCAG 硬门槛配对实测全过，依据 C-dual-theme.md §9）。
 - 层级方向与深色相反：面板最亮（纸面白 #ffffff），骨架/画布/井位反向压灰（画布 #eef1f4、骨架 #e5eaef、交互井 #e4eaef、强井 #d7dfe6）。

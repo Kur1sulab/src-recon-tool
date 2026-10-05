@@ -45,6 +45,9 @@ func NewSession(repoRoot, dataDir, pythonPath string) (*Session, error) {
 		pythonPath = settings.PythonPath
 	}
 	r := engine.NewRunner(repoRoot, dataDir, pythonPath)
+	if settings.GoEnginePath != "" {
+		r.SetGoEnginePath(settings.GoEnginePath)
+	}
 	r.SetSink(sessionSink{st: st})
 	return &Session{Store: st, Runner: r, RepoRoot: repoRoot, DataDir: dataDir}, nil
 }
@@ -164,8 +167,28 @@ func (s *Session) resolvePythonOrEmpty() string {
 	return p
 }
 
+// resolveGoEngineOrEmpty 返回当前解析到的 recon-go.exe 路径（失败空串，界面预填用）。
+func (s *Session) resolveGoEngineOrEmpty() string {
+	p, err := s.Runner.ResolveGoEngine()
+	if err != nil {
+		return ""
+	}
+	return p
+}
+
+// rebuildRunner 以当前 settings 换装引擎 runner（Python/Go 两条路径都按
+// settings 带齐——换装丢字段曾会让另一条引擎路径静默回退到探测）。
+func (s *Session) rebuildRunner(pythonPath string) {
+	r := engine.NewRunner(s.RepoRoot, s.DataDir, pythonPath)
+	if st, err := LoadSettings(s.DataDir); err == nil && st.GoEnginePath != "" {
+		r.SetGoEnginePath(st.GoEnginePath)
+	}
+	r.SetSink(sessionSink{st: s.Store})
+	s.Runner = r
+}
+
 // SetPythonPath 切换解释器并写回 settings.json（重启后仍生效）。
-// 有任务运行时拒绝，避免丢进程表。
+// 有任务运行时拒绝，避免丢进程表。GoEnginePath 字段原样保留。
 func (s *Session) SetPythonPath(path string) error {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -174,12 +197,37 @@ func (s *Session) SetPythonPath(path string) error {
 	if n := len(s.Runner.RunningIDs()); n > 0 {
 		return fmt.Errorf("有 %d 个任务正在运行，等它们结束再切换解释器", n)
 	}
-	if err := SaveSettings(s.DataDir, Settings{PythonPath: path}); err != nil {
+	st, err := LoadSettings(s.DataDir)
+	if err != nil {
+		return fmt.Errorf("设置读取失败: %w", err)
+	}
+	st.PythonPath = path
+	if err := SaveSettings(s.DataDir, st); err != nil {
 		return fmt.Errorf("设置写入失败: %w", err)
 	}
-	r := engine.NewRunner(s.RepoRoot, s.DataDir, path)
-	r.SetSink(sessionSink{st: s.Store})
-	s.Runner = r
+	s.rebuildRunner(path)
+	return nil
+}
+
+// SetGoEnginePath 切换 recon-go.exe（基线检查执行器）路径并写回
+// settings.json（样板同 SetPythonPath；PythonPath 字段原样保留）。
+func (s *Session) SetGoEnginePath(path string) error {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return fmt.Errorf("Go 引擎路径不能为空")
+	}
+	if n := len(s.Runner.RunningIDs()); n > 0 {
+		return fmt.Errorf("有 %d 个任务正在运行，等它们结束再切换 Go 引擎", n)
+	}
+	st, err := LoadSettings(s.DataDir)
+	if err != nil {
+		return fmt.Errorf("设置读取失败: %w", err)
+	}
+	st.GoEnginePath = path
+	if err := SaveSettings(s.DataDir, st); err != nil {
+		return fmt.Errorf("设置写入失败: %w", err)
+	}
+	s.rebuildRunner(st.PythonPath)
 	return nil
 }
 
@@ -245,7 +293,7 @@ func normalizeTarget(cmd, key, raw string) (string, error) {
 			return "", fmt.Errorf("IP 反查的目标应为裸 IP 地址，如 47.100.49.228")
 		}
 		return key, nil
-	case cmd == "subdomain" || cmd == "icp":
+	case cmd == "subdomain" || cmd == "icp" || cmd == "baseline":
 		if strings.ContainsAny(raw, "/:") {
 			return "", fmt.Errorf("该模块的目标应为域名（不含协议和端口），如 xycovo.com")
 		}

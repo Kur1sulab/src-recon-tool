@@ -21,10 +21,13 @@ import (
 	"recon-native/internal/whitelist"
 )
 
-// cmdSet 允许下发的子命令白名单（与桌面端九模块一一对应）。
+// cmdSet 允许下发的子命令白名单（与桌面端模块一一对应）。baseline 是第十个
+// 成员：域名暴露面基线检查，执行器为 recon-go.exe（第二子进程，非 recon.py
+// 对齐项——recon.py 无 baseline 子命令，桌面按子命令选引擎分支）。
 var cmdSet = map[string]bool{
 	"all": true, "paths": true, "api": true, "fingerprint": true, "jsintel": true,
 	"portscan": true, "subdomain": true, "reverse": true, "icp": true,
+	"baseline": true,
 }
 
 // Sink 引擎向任务库回写状态/进度的通道（server 侧实现，测试侧用假件）。
@@ -39,6 +42,7 @@ type Runner struct {
 	repoRoot   string
 	dataDir    string
 	pythonPath string
+	goExePath  string // recon-go.exe 显式路径（baseline 子进程执行器）
 	procs      map[string]*exec.Cmd
 	stopping   map[string]bool
 	jobs       map[string]io.Closer // 任务 id → Job Object 句柄（Windows，随壳消亡）
@@ -106,6 +110,56 @@ func (r *Runner) ResolvePython() (string, error) {
 	return "", errors.New("未找到 Python 解释器（可在设置里指定，或设 RECON_PYTHON 环境变量）")
 }
 
+// SetGoEnginePath 注入 recon-go.exe 显式路径（来自 settings.json 的
+// go_engine_path，优先级最高）。
+func (r *Runner) SetGoEnginePath(p string) { r.goExePath = p }
+
+// ResolveGoEngine 解析 Go 引擎执行器（baseline 子进程）：显式设置 >
+// RECON_GO_EXE 环境变量 > repoRoot/engine-go/recon-go.exe 探测（回退顺序
+// 同 ResolvePython 样板）。找不到返回错误——引擎缺失必须显式报错并给构建
+// 指引，不静默失败（教训：依赖静默失败让排查成本翻倍）。
+func (r *Runner) ResolveGoEngine() (string, error) {
+	if r.goExePath != "" {
+		return r.goExePath, nil
+	}
+	if env := os.Getenv("RECON_GO_EXE"); env != "" {
+		if _, err := os.Stat(env); err == nil {
+			return env, nil
+		}
+	}
+	cand := filepath.Join(r.repoRoot, "engine-go", "recon-go.exe")
+	if _, err := os.Stat(cand); err == nil {
+		return cand, nil
+	}
+	return "", errors.New("未找到 Go 引擎 recon-go.exe（基线检查需要它：在 engine-go 目录执行 " +
+		"go build -o recon-go.exe . 构建，或在设置里指定路径，或设 RECON_GO_EXE 环境变量）")
+}
+
+// ProbeGoEngine 探测 Go 引擎可用性（recon-go -h，exit 0 即可用），
+// 供设置页「自检」。每次调用带超时上限（probeTimeout），挂起的引擎
+// 不会拖死 UI。返回 (是否可用, 帮助文本首行)。
+func (r *Runner) ProbeGoEngine() (found bool, info string) {
+	exe, err := r.ResolveGoEngine()
+	if err != nil {
+		return false, ""
+	}
+	if st, serr := os.Stat(exe); serr != nil || st.IsDir() {
+		return false, ""
+	}
+	found = true
+	c := r.Command(exe, "-h") // 固定参数数组，经统一进程接缝
+	var buf bytes.Buffer
+	c.Stdout = &buf
+	c.Stderr = &buf
+	if err := r.runBounded(c, probeTimeout); err == nil {
+		info = strings.TrimSpace(buf.String())
+		if i := strings.IndexByte(info, '\n'); i > 0 {
+			info = strings.TrimSpace(info[:i])
+		}
+	}
+	return found, info
+}
+
 // probeTimeout 单次自检子进程的上限：解释器挂起/启动极慢时宁可报
 // 「自检超时」也不能把 Gio 事件循环无限期冻住（审计 low-3）。
 const probeTimeout = 10 * time.Second
@@ -160,9 +214,10 @@ func (r *Runner) ProbePython() (found bool, version string, depsOK bool) {
 // CmdAllowed 报告子命令是否在九模块白名单内。
 func CmdAllowed(cmd string) bool { return cmdSet[cmd] }
 
-// BuildCmdArgs 把子命令 + 目标拼成 recon.py 的参数段（不含解释器与脚本路径）。
-// fix1 P0 纵深层：extra 过 ValidateExtraArgs 精确白名单（堵 argparse 前缀缩写
-// 展开覆盖目标）——server 层黑名单之外的任何调用方也绕不过这里。
+// BuildCmdArgs 把子命令 + 目标拼成引擎的参数段（不含解释器/引擎可执行与
+// 脚本路径）。fix1 P0 纵深层：extra 过 ValidateExtraArgs 精确白名单（堵
+// argparse 前缀缩写展开覆盖目标）——server 层黑名单之外的任何调用方也绕
+// 不过这里。baseline 目标走 -d（域名形态，归一化由 session 层保证）。
 func BuildCmdArgs(cmd, target string, extra []string) ([]string, error) {
 	if !cmdSet[cmd] {
 		return nil, fmt.Errorf("不支持的子命令: %s", cmd)
@@ -176,8 +231,8 @@ func BuildCmdArgs(cmd, target string, extra []string) ([]string, error) {
 		head = []string{"all", "-t", target}
 	case "portscan":
 		head = []string{"portscan", "-t", target}
-	case "subdomain":
-		head = []string{"subdomain", "-d", target}
+	case "subdomain", "baseline":
+		head = []string{cmd, "-d", target}
 	case "icp":
 		head = []string{"icp", "-d", target}
 	case "reverse":
@@ -205,19 +260,10 @@ func (r *Runner) Start(id, cmd, target string, extra []string) error {
 	if !taskIDRe.MatchString(id) {
 		return fmt.Errorf("任务 ID 含不允许的字符: %q", id)
 	}
-	python, err := r.ResolvePython()
-	if err != nil {
-		return err
-	}
 	argv, err := BuildCmdArgs(cmd, target, extra)
 	if err != nil {
 		return err
 	}
-	script := filepath.Join("src", "recon.py")
-	if _, err := os.Stat(filepath.Join(r.repoRoot, script)); err != nil {
-		return errors.New("未找到扫描引擎 src/recon.py（工作目录必须为仓库根）")
-	}
-
 	progressPath := filepath.Join(r.dataDir, "progress", id+".jsonl")
 	logPath := filepath.Join(r.dataDir, "logs", id+".log")
 	if err := os.MkdirAll(filepath.Dir(progressPath), 0o755); err != nil {
@@ -227,11 +273,33 @@ func (r *Runner) Start(id, cmd, target string, extra []string) error {
 		return err
 	}
 
-	// --progress-file 必须放在子命令之前（argparse 主解析器参数）
-	full := append([]string{python, script, "--progress-file", progressPath}, argv...)
+	// 按子命令选引擎分支（桌面执行器裁决）：baseline → recon-go.exe 第二
+	// 子进程；其余九模块照旧 python recon.py。两引擎的 --progress-file 都
+	// 必须放在子命令之前（argparse 主解析器参数 / cli.applyProgressFile 只
+	// 认前置形态），进度事件流同构，Tailer 与 monitor 终态机对引擎无感知。
+	var full []string
+	if cmd == "baseline" {
+		goExe, gerr := r.ResolveGoEngine()
+		if gerr != nil {
+			return gerr
+		}
+		full = append([]string{goExe, "--progress-file", progressPath}, argv...)
+	} else {
+		python, perr := r.ResolvePython()
+		if perr != nil {
+			return perr
+		}
+		script := filepath.Join("src", "recon.py")
+		if _, err := os.Stat(filepath.Join(r.repoRoot, script)); err != nil {
+			return errors.New("未找到扫描引擎 src/recon.py（工作目录必须为仓库根）")
+		}
+		full = append([]string{python, script, "--progress-file", progressPath}, argv...)
+	}
 	c := r.Command(full[0], full[1:]...)
 	c.Dir = r.repoRoot
-	c.Env = append(os.Environ(), "PYTHONUTF8=1", "PYTHONIOENCODING=utf-8")
+	if cmd != "baseline" { // Python 侧编码环境；Go 引擎无需
+		c.Env = append(os.Environ(), "PYTHONUTF8=1", "PYTHONIOENCODING=utf-8")
+	}
 	logFile, err := os.Create(logPath) // stdout/stderr 原样落盘，不解析
 	if err != nil {
 		return err

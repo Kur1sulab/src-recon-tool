@@ -21,6 +21,11 @@ func (a *appUI) pageSettings(gtx layout.Context) layout.Dimensions {
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return layout.Inset{Top: Sp4}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return a.goEngineCard(gtx)
+			})
+		}),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return layout.Inset{Top: Sp4}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				return a.outputCard(gtx)
 			})
 		}),
@@ -90,6 +95,67 @@ func (a *appUI) pythonCard(gtx layout.Context) layout.Dimensions {
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					return layout.Inset{Top: Sp1}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 						return monoLabel(a.th, fmt.Sprintf("当前生效：%s", path), Fs11, ColTx3).Layout(gtx)
+					})
+				}),
+			)
+		})
+	})
+}
+
+// goEngineCard Go 引擎（基线检查执行器 recon-go.exe）路径 + 自检 + 保存。
+// 引擎缺失时给构建命令，不静默失败（ksubdomain 静默失败教训）。
+func (a *appUI) goEngineCard(gtx layout.Context) layout.Dimensions {
+	goPath, _, goFound := a.env.goSnapshot()
+	return card(gtx, ColS2, R3, func(gtx layout.Context) layout.Dimensions {
+		gtx.Constraints.Min.X = gtx.Constraints.Max.X
+		return layout.Inset{Top: Sp3, Bottom: Sp3, Left: Sp4, Right: Sp4}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					return sectionLabel(a.th, "Go 引擎（基线检查跑 engine-go/recon-go.exe）").Layout(gtx)
+				}),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					return layout.Inset{Top: Sp2}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						return inputWell(gtx, a.th, &a.goEd, Fs14, "recon-go.exe 绝对路径（留空用仓库 engine-go 目录探测）")
+					})
+				}),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					return layout.Inset{Top: Sp2}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								btn := material.Button(a.th.Theme, &a.goCheckBtn, "自检")
+								btn.Background = ColS3
+								btn.Color = ColTx1
+								btn.CornerRadius = R2
+								return btn.Layout(gtx)
+							}),
+							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								return layout.Inset{Left: Sp2}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+									btn := material.Button(a.th.Theme, &a.goSaveBtn, "保存并生效")
+									return btn.Layout(gtx)
+								})
+							}),
+							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								return layout.Inset{Left: Sp3}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+									txt, col := "尚未自检", ColTx3
+									if goPath != "" || goFound {
+										txt, col = "已探测到："+goPath, ColOk
+									} else if goPath == "" {
+										txt, col = "未找到（需先构建，见下方指引）", ColWarn
+									}
+									if a.goResult != "" {
+										txt, col = a.goResult, ColTx1
+									}
+									l := monoLabel(a.th, txt, Fs12, col)
+									l.MaxLines = 3
+									return l.Layout(gtx)
+								})
+							}),
+						)
+					})
+				}),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					return layout.Inset{Top: Sp1}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						return monoLabel(a.th, "构建命令：进入仓库 engine-go 目录执行 go build -o recon-go.exe .", Fs11, ColTx3).Layout(gtx)
 					})
 				}),
 			)

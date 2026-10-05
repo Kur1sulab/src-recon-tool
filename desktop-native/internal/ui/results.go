@@ -7,14 +7,14 @@ import (
 	"recon-native/internal/store"
 )
 
-// ModuleInfo 一个扫描模块的展示元数据（九模块，与 engine.cmdSet 一一对应）。
+// ModuleInfo 一个扫描模块的展示元数据（九模块 + baseline，与 engine.cmdSet 一一对应）。
 type ModuleInfo struct {
-	Key   string // 传给 recon.py 的子命令
+	Key   string // 传给引擎的子命令（recon.py 九模块 / recon-go baseline）
 	Label string // 中文名（界面用）
 	Desc  string // 一句话说明（工具页/新建任务页用）
 }
 
-// Modules 九个扫描模块（顺序即界面排列顺序）。
+// Modules 十个扫描模块（顺序即界面排列顺序）。
 var Modules = []ModuleInfo{
 	{"all", "全部模块", "按顺序跑完整条信息收集流水线"},
 	{"subdomain", "子域枚举", "从公开数据源枚举子域并做存活验证"},
@@ -25,12 +25,31 @@ var Modules = []ModuleInfo{
 	{"portscan", "端口扫描", "对目标 IP 做常用端口探测"},
 	{"reverse", "IP 反查", "反查 IP 绑定的域名与旁站线索"},
 	{"icp", "ICP 备案", "查询域名 ICP 备案主体信息"},
+	{"baseline", "基线检查", "域名暴露面基线体检（8 项检查一键跑）"},
+}
+
+// baselineEventLabels 基线 8 个子检查事件 module 名 → 中文（进度事件流里
+// module=secheaders 等会进结果页过程表；与 engine-go baseline.CheckLabels
+// 按值同步，双侧任一改动须同改——baselineview_test 钉住）。映射缺失只影响
+// 显示文案不崩（moduleLabel 回退原样）。
+var baselineEventLabels = map[string]string{
+	"secheaders": "安全响应头",
+	"webfiles":   "网站文件",
+	"mailsec":    "邮件安全",
+	"archives":   "历史归档",
+	"sslchain":   "TLS 证书链",
+	"dnsrec":     "DNS 记录",
+	"whois":      "WHOIS 注册信息",
+	"geoasn":     "IP 归属 / ASN",
 }
 
 // moduleLabel 取模块中文名（未知 key 原样返回；pipeline 是引擎过程事件的前缀）。
 func moduleLabel(key string) string {
 	if key == "pipeline" {
 		return "流水线"
+	}
+	if l, ok := baselineEventLabels[key]; ok {
+		return l
 	}
 	for _, m := range Modules {
 		if m.Key == key {

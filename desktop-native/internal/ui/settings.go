@@ -10,7 +10,8 @@ import (
 // Settings 桌面端设置（settings.json，与任务库同目录）。
 // 只存用户显式选择；不存任何凭据类内容。
 type Settings struct {
-	PythonPath string `json:"python_path,omitempty"`
+	PythonPath   string `json:"python_path,omitempty"`
+	GoEnginePath string `json:"go_engine_path,omitempty"` // recon-go.exe（基线检查执行器）
 }
 
 // settingsFile 设置文件名。

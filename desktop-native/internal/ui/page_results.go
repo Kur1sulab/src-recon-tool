@@ -111,40 +111,40 @@ func (a *appUI) pageResults(gtx layout.Context) layout.Dimensions {
 	)
 }
 
-// moduleTabRow 模块 tab：胶囊按钮排，选中 acc-bg/亮青，未选 s2/次文。
+// moduleTabRow 模块 tab：胶囊按钮横排（横向可滚——11 胶囊 × 88dp = 968dp
+// 超出主区 908dp 内容宽，固定行会裁掉最后一枚，实测截图钉住），
+// 选中 acc-bg/亮青，未选 s2/次文。
 func (a *appUI) moduleTabRow(gtx layout.Context) layout.Dimensions {
 	tabs := tabKeys()
-	chipW := gtx.Dp(unit.Dp(88))
-	out := make([]layout.FlexChild, 0, len(tabs))
-	for _, m := range tabs {
-		m := m
-		out = append(out, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			c := a.tabClick(m.Key)
-			active := a.moduleTab.Value == m.Key
-			bg, fg := ColS2, ColTx2
-			switch {
-			case active:
-				bg, fg = ColAccBg, ColAccHi
-			case c.Hovered():
-				bg, fg = ColS3, ColTx1
-			}
-			gtx.Constraints.Min.X = chipW
-			gtx.Constraints.Min.Y = gtx.Dp(unit.Dp(26))
-			bl := material.ButtonLayout(a.th.Theme, c)
-			bl.Background = bg
-			bl.CornerRadius = unit.Dp(999) // 胶囊（r-full）
-			return bl.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					l := label(a.th, m.Label, Fs11, fg)
-					if active {
-						l.Font.Weight = mediumWeight
-					}
-					return l.Layout(gtx)
-				})
+	chipW := gtx.Dp(unit.Dp(80)) // 11×80=880dp ≤ 主区 908dp：默认全见；超出仍可横向滚
+	a.tabList.Axis = layout.Horizontal
+	return a.tabList.Layout(gtx, len(tabs), func(gtx layout.Context, i int) layout.Dimensions {
+		m := tabs[i]
+		c := a.tabClick(m.Key)
+		active := a.moduleTab.Value == m.Key
+		bg, fg := ColS2, ColTx2
+		switch {
+		case active:
+			bg, fg = ColAccBg, ColAccHi
+		case c.Hovered():
+			bg, fg = ColS3, ColTx1
+		}
+		gtx.Constraints.Min.X = chipW
+		gtx.Constraints.Max.X = chipW
+		gtx.Constraints.Min.Y = gtx.Dp(unit.Dp(26))
+		bl := material.ButtonLayout(a.th.Theme, c)
+		bl.Background = bg
+		bl.CornerRadius = unit.Dp(999) // 胶囊（r-full）
+		return bl.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				l := label(a.th, m.Label, Fs11, fg)
+				if active {
+					l.Font.Weight = mediumWeight
+				}
+				return l.Layout(gtx)
 			})
-		}))
-	}
-	return layout.Flex{Axis: layout.Horizontal, Spacing: layout.SpaceEnd}.Layout(gtx, out...)
+		})
+	})
 }
 
 // pagerRow 分页条：‹ 上一页 / 第 x / y 页 / 下一页 ›。
@@ -191,7 +191,8 @@ func (a *appUI) taskListTable(gtx layout.Context, rows []TaskRow) layout.Dimensi
 			return hairline(gtx, ColLn1)
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			list := layout.List{Axis: layout.Vertical}
+			list := a.taskList // 持久 List：滚动位置跨帧存活
+			list.Axis = layout.Vertical
 			return list.Layout(gtx, len(rows), func(gtx layout.Context, i int) layout.Dimensions {
 				r := rows[i]
 				gtx.Constraints.Min.X = gtx.Constraints.Max.X
@@ -260,6 +261,11 @@ func (a *appUI) taskDetail(gtx layout.Context) layout.Dimensions {
 		return emptyHint(gtx, a.th, "任务已被清理")
 	}
 	rows := ResultRows(t)
+	// 基线任务：过程事件行之后追加「每检查结论」行（每个检查在结果表都有
+	// 对应行——结论逐检查一行，未运行/失败态照实标注，不编造）。
+	if t.Cmd == "baseline" && a.selBaseStates != nil {
+		rows = append(rows, BaselineConclusionRows(a.selBaseStates)...)
+	}
 	start, end, _ := PageBounds(len(rows), a.rowsPage, PageSize)
 	pageRows := rows[start:end]
 
@@ -319,7 +325,7 @@ func (a *appUI) taskDetail(gtx layout.Context) layout.Dimensions {
 					}),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						return layout.Inset{Top: Sp2}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-							return resultTable(gtx, a.th, pageRows)
+							return resultTable(gtx, a.th, pageRows, &a.procList)
 						})
 					}),
 				)
@@ -328,8 +334,8 @@ func (a *appUI) taskDetail(gtx layout.Context) layout.Dimensions {
 	)
 }
 
-// resultTable 过程记录表（斑马纹，List 虚拟化）。
-func resultTable(gtx layout.Context, th *Theme, rows []ResultRow) layout.Dimensions {
+// resultTable 过程记录表（斑马纹，List 虚拟化；lst 持久化滚动位置）。
+func resultTable(gtx layout.Context, th *Theme, rows []ResultRow, lst *layout.List) layout.Dimensions {
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Min.X = gtx.Constraints.Max.X
@@ -340,8 +346,8 @@ func resultTable(gtx layout.Context, th *Theme, rows []ResultRow) layout.Dimensi
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Max.Y = gtx.Dp(unit.Dp(300))
-			list := layout.List{Axis: layout.Vertical}
-			return list.Layout(gtx, len(rows), func(gtx layout.Context, i int) layout.Dimensions {
+			lst.Axis = layout.Vertical
+			return lst.Layout(gtx, len(rows), func(gtx layout.Context, i int) layout.Dimensions {
 				gtx.Constraints.Min.X = gtx.Constraints.Max.X
 				r := rows[i]
 				body := []string{r.Time, r.Module, r.Event, r.Detail}
