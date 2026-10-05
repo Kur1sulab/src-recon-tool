@@ -4,6 +4,8 @@
  * 两表客户端分页：每页 50 行，上一页/下一页 + 页码指示（进度事件
  * 服务端上限 store.MaxProgress=2000，分页保证长表可用）。
  * 800ms 轮询 GET /api/scans/{id}，终态后停止轮询。
+ * 退出码附中文判读（0=正常结束 / 非 0=异常结束）；日志刷新判据 =
+ * 长度 + 末行指纹，且仅在视口距底 48px 内跟随滚动。
  * ============================================================ */
 (function () {
   "use strict";
@@ -12,6 +14,7 @@
   var poll = null;
   var currentId = null;
   var lastLogLen = -1;
+  var lastLogTail = ""; // 日志刷新判据的第二半：末行指纹
   var pickerEl = null;
   var everLoaded = false;
   var pgProgress = 0;
@@ -35,10 +38,17 @@
     if (!on && pickerEl) { pickerEl.remove(); pickerEl = null; }
   }
 
+  // 退出码中文判读：0=正常结束，非 0=异常结束，空值=尚未退出
+  function exitNote(exit) {
+    if (exit === undefined || exit === null || exit === "") return "-";
+    var n = Number(exit);
+    if (!isFinite(n)) return String(exit);
+    return n === 0 ? "0（正常结束）" : n + "（异常结束）";
+  }
+
   function renderMeta(s) {
     var grid = document.getElementById("detailMeta");
     grid.textContent = "";
-    var exit = s.exit_code;
     var cmd = s.cmd || "-";
     var cmdLabel = App.CMD_META[cmd] ? App.CMD_META[cmd].label + "（" + cmd + "）" : cmd;
     var rows = [
@@ -46,7 +56,7 @@
       ["目标", App.h("span", { class: "mono", text: String(s.target || "-") })],
       ["子命令", App.h("span", { text: cmdLabel })],
       ["状态", chip(s.status)],
-      ["退出码", App.h("span", { class: "mono", text: (exit === undefined || exit === null || exit === "") ? "-" : String(exit) })],
+      ["退出码", App.h("span", { class: "mono", text: exitNote(s.exit_code) })],
       ["开始时间", App.h("span", { class: "mono", text: App.fmtTs(App.pick(s, ["started_at", "created_at", "ts"])) })],
       ["结束时间", App.h("span", { class: "mono", text: App.fmtTs(App.pick(s, ["finished_at", "ended_at", "updated_at"])) })]
     ];
@@ -56,7 +66,11 @@
     });
 
     var running = s.status === "running" || s.status === "created";
-    document.getElementById("detailStop").hidden = !running;
+    var stopBtn = document.getElementById("detailStop");
+    stopBtn.hidden = !running;
+    // .btn 的 display 规则会盖过 [hidden] 属性（作者级 > UA 级），
+    // 必须叠加契约内的 .hidden 类才能真正隐藏
+    stopBtn.classList.toggle("hidden", !running);
     document.getElementById("detailEvidenceLink")
       .setAttribute("href", "#/evidence/" + encodeURIComponent(s.id || ""));
   }
@@ -87,8 +101,9 @@
     var slice = paired.rows.slice(info.offset, info.offset + info.limit);
 
     var tbody = App.h("tbody", null, slice.map(function (r) {
+      // 模块级状态词与任务级词表一致：done 一律「已完成」
       var statusText = r.status === "running" ? "运行中"
-        : (r.status === "done" ? "完成"
+        : (r.status === "done" ? "已完成"
           : (r.status === "fail" ? "失败" : String(r.status || "-")));
       return App.h("tr", null,
         App.h("td", { text: r.label }),
@@ -100,13 +115,15 @@
         App.h("td", { class: "num", text: r.durMs !== undefined ? App.fmtDur(r.durMs) : "-" }),
         App.h("td", { class: "mono", text: r.detail || "" }));
     }));
-    wrapEl.appendChild(App.h("table", { class: "data" }, App.h("thead", null,
-      App.h("tr", null,
-        App.h("th", { text: "模块" }),
-        App.h("th", { text: "标识" }),
-        App.h("th", { text: "状态" }),
-        App.h("th", { text: "耗时" }),
-        App.h("th", { text: "详情" }))), tbody));
+    wrapEl.appendChild(App.h("table", { class: "data" },
+      App.h("caption", { text: "模块进度" }),
+      App.h("thead", null,
+        App.h("tr", null,
+          App.h("th", { scope: "col", text: "模块" }),
+          App.h("th", { scope: "col", text: "标识" }),
+          App.h("th", { scope: "col", text: "状态" }),
+          App.h("th", { scope: "col", text: "耗时" }),
+          App.h("th", { scope: "col", text: "详情" }))), tbody));
     App.renderPager(pagerEl, info, function (p) { pgProgress = p; refresh(); });
   }
 
@@ -130,10 +147,12 @@
         App.h("td", { class: "mono", text: String(a.name || "-") }),
         App.h("td", { class: "num", text: App.fmtSize(a.size) }));
     }));
-    wrapEl.appendChild(App.h("table", { class: "data" }, App.h("thead", null,
-      App.h("tr", null,
-        App.h("th", { text: "产物文件" }),
-        App.h("th", { text: "大小" }))), tbody));
+    wrapEl.appendChild(App.h("table", { class: "data" },
+      App.h("caption", { text: "结果产物" }),
+      App.h("thead", null,
+        App.h("tr", null,
+          App.h("th", { scope: "col", text: "产物文件" }),
+          App.h("th", { scope: "col", text: "大小" }))), tbody));
     App.renderPager(pagerEl, info, function (p) { pgArtifacts = p; refresh(); });
   }
 
@@ -141,11 +160,14 @@
     var el = document.getElementById("detailLog");
     var text = logTail || "";
     if (text === "" && lastLogLen <= 0) { el.textContent = "（暂无日志）"; return; }
-    // 用户上滚查看历史时不强制拉底
+    // 用户上滚查看历史时不强制拉底：距底 48px 内才跟随
     var nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
-    if (text.length !== lastLogLen) {
+    // 刷新判据 = 长度 + 末行指纹：日志尾被轮转裁剪后恰好等长时也能刷新
+    var lastLine = text.slice(text.lastIndexOf("\n") + 1);
+    if (text.length !== lastLogLen || lastLine !== lastLogTail) {
       el.textContent = text;
       lastLogLen = text.length;
+      lastLogTail = lastLine;
       if (nearBottom) el.scrollTop = el.scrollHeight;
     }
   }
@@ -153,7 +175,9 @@
   /* ---------- 三态 ---------- */
 
   function renderLoadState() {
-    document.getElementById("detailProgressWrap").textContent = "";
+    var progressWrap = document.getElementById("detailProgressWrap");
+    progressWrap.textContent = "";
+    progressWrap.appendChild(App.h("div", { class: "empty-hint", text: "正在加载任务详情…" }));
     document.getElementById("detailArtifactsWrap").textContent = "";
     document.getElementById("detailArtifactsWrap")
       .appendChild(App.h("div", { class: "empty-hint", text: "正在加载任务详情…" }));
@@ -225,7 +249,7 @@
       });
     }).catch(function () {
       sel.textContent = "";
-      sel.appendChild(App.h("option", { value: "", text: "（无法连接本地服务）" }));
+      sel.appendChild(App.h("option", { value: "", text: "离线：无法获取任务列表，稍后重进本页重试。" }));
     });
   }
 
@@ -233,6 +257,7 @@
     enter: function (id) {
       currentId = id ? decodeURIComponent(id) : null;
       lastLogLen = -1;
+      lastLogTail = "";
       pgProgress = 0;
       pgArtifacts = 0;
       if (!currentId) {
@@ -246,7 +271,7 @@
       };
       document.getElementById("detailStop").onclick = function () {
         API.stopScan(currentId).then(function () {
-          App.toast("停止指令已提交", "ok");
+          App.toast("停止指令已提交（任务 " + App.shortId(currentId) + "）", "ok");
           refresh().catch(function () { });
         }).catch(function (err) {
           App.toast(err && err.message ? err.message : "停止失败", "err");

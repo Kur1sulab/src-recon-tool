@@ -80,4 +80,64 @@
 8. **engine-go track 定位**：desktop 壳当前只调 Python 流水线（铁律 2 口径），engine-go 为并行 Go 引擎工程（parity 矩阵+mockweb 漂移守卫）——其与桌面壳的接入或归档关系需第 2 轮明确决策，避免双引擎叙事混乱。
 
 ---
-*第 2 轮起按轮追加。*
+
+## 原生转向与两轮施工总结（native 线收口）— 2026-10-05
+
+### 用户裁定：转向原生
+
+webview 线（desktop-go/）走到美术方案 C 双主题提案（`a3a3c0c`，10-04 14:17）后，用户裁定桌面壳改走**纯 Go 原生自绘**路线：零 CGO、零网页技术栈、零 WebView2 运行时依赖；**webview 版 desktop-go/ 不删除，保留为参考实现**；产品定名维持「信息收集工具」。裁定后 2 小时尖峰、4 小时骨架轮入库。时间线（本轮 `git log --format='%h %ad %s'` 实查）：
+
+`a3a3c0c`（14:17，webview 线末笔）→ `373e57c` skeleton（16:20）→ `f0a08f0` full（19:23）→ `c3cfc27` fix1（22:18）→ `65d4ee2` / `9370d00` final（10-05 00:35 / 02:22）。
+
+### 选型证据与尖峰
+
+- **选型 gioui.org v0.10.3**：直接依赖仅 Gio（纯 Go 即时模式自绘 UI）+ golang.org/x/sys（Win32 Job Object 用），desktop-native/go.mod 全文无 wails/webview/网页栈（REVIEW-native.md §1 实读）；`go env` 实测 GOOS=windows、CGO_ENABLED=0、go1.24.1。相对 webview 壳的实质变化：UI 渲染完全在应用进程内，不再依赖系统 WebView2 Runtime。
+- **尖峰（desktop-native/spike/，随骨架轮 373e57c 入库）**：最小窗口=一个按钮+一张三行表格（spike/main.go），验证三件事——① Gio 在 Windows 纯 Go 下 build 出 exe 且能起真窗口；② 中文渲染注册 `msyh.ttc`（TTC）可行，spike/run.log 实跑留痕 `FONT: msyh.ttc ok, faces = 2`（后成为生产 loadFaces 的字体路径，DESIGN-native.md §字体行）；③ 两种构建产物在位：spike-gio.exe / spike-gio-nocgo.exe 各 11,241,984 字节（本轮 `ls -la` 实测，10-04 14:52/14:53）。
+- 如实登记：仓内没有候选框架逐项对比矩阵文档；「原生」路线本身是用户裁定（本轮验收指令明示），仓内证据是尖峰可行性实跑 + go.mod 依赖面 + 复核 §1 证实。
+
+### 骨架轮（`373e57c`，10-04 16:20）
+
+- 模块 `recon-native`；whitelist/store/engine 三包自 desktop-go 拷贝，go test 证等价；32 文件 +4145 行（`git show --stat` 实查）。
+- 五页导航骨架：仪表盘/新建任务/结果/工具/设置（页面命名按定名令即「新建任务」，无「新建侦察」）；「石板声呐」深色令牌进 theme.go Go 常量。
+- 新建任务页接线引擎子进程管理全链（白名单闸→目标归一→参数白名单→入库→起 recon.py），TDD 红绿；mock 靶站端到端测试（真引擎跑通结果表格出条目，无靶站自动跳过）。
+
+### 全功能轮（`f0a08f0`，10-04 19:23）
+
+- 结果页：模块 tab 胶囊 + 双表 50 行分页 + 证据包导出（现成 zip 审计复用/现打聚合包、嵌套 zip 与超限留痕——规则自 desktop-go server.go **同语义移植**；evidence.go 新件 + evidence_test.go 183 行）。
+- 设置页 settings.json 持久化（解释器路径 保存>env 优先级、重启生效）+ 输出目录只读卡；工具页外部依赖状态卡（Python/引擎脚本/mock 靶站/out 目录，LED 点三色）。
+- 键盘流 Esc 停止 + Ctrl+1..5 切页（Tab 遍历走 Gio FocusFilter 内建）；空/载/错三态补全；-lo 纪律修复（停止钮底改 err-bg）；docs/DESIGN-native.md 令牌对照表+五页视觉要点+四条硬边界（Tx3 禁上 S4、Idle 不作文字色等）；TDD 红绿 14 新测试；12 文件 +1228/−22。
+
+### 真窗口验收与 fix1 轮（`c3cfc27`，10-04 22:18）
+
+- 验收方式（REVIEW-native.md §5）：真起 exe（Gio 真窗口，非 headless），UIAutomation+SendInput 走查，39 张截图留证 docs/review-native-shots/（shot-01～18 + stage1-9.ps1 可复跑）。A 层标题栏只有应用名无浏览器残留、关窗不留孤儿；B 层五页无溢出、命中测试全过；C 层 Ctrl+2/3/5 实证换页、三态齐备；**D 层最有分量——一条经真窗口 UI 发起的全流水线任务**（xycovo.com/全部模块，退出码 0，22 条过程记录，证据包 zip 6998 字节导出成功，shot-18 回执）。
+- 验收揪出 9 项 high/medium，fix1 轮全落：共同根因是 gioui.org v0.10.3 `layout/stack.go` 的 Stack 铺底语义（Stacked 的 Min 清零、Expanded 只抬到内容自然尺寸）——theme.go card 底钉 Max.X + 新增 cardFill 满槽位铺底，真窗口像素探针五页 WHITE 采样 **63866→0**；monoLabel 加 isASCII 守卫（Consolas 无中文字形，验收 8 处丢字的根因）；工具页包垂直 List 滚动；快捷键过滤器加 Optional 修饰键（Alt/AltGr 卡死免疫）；输入井 2dp 品牌青焦点环。Ctrl+2 首按 3/3 重启复验通过。
+
+### 审计对抗处置（final 轮，`65d4ee2` + `9370d00`）
+
+- **台账（desktop-native/docs/SECURITY-ADVISORIES.md，已入库）**：
+  - ADV-20261004-01 `RECON_PYTHON` 跨文件污点（medium，by-design 人工背书，2026-10-04 修复会话用户确认；升级条件写明：出现「远端可写配置源」通道即须在 SetPythonPath 加路径校验并重评）。
+  - ADV-20261004-02 壳被硬杀→扫描进程孤儿（对抗实验实锤：taskkill /F 硬杀父进程后 PING.EXE 存活）→ **Job Object 根治**：runner.Start 起进程即挂 `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`（job_windows.go:39），壳优雅退出或被硬杀，句柄随进程回收关闭、Job 内整树同步终局；killTree 保留兜底，非 Windows 走 job_other.go 空实现。回归 job_windows_test.go：真 cmd→ping 树挂 Job，关句柄后 tasklist 全局 PING.EXE 归零。
+- **纵深与收口**：引擎层纵深闸（runner.Start 复检 whitelist.Check + taskIDRe 校验 id——闸外新调用方直连 Start 也绕不过）；白名单归一化 key（**校验值=执行值**，双尾点等价写法不再原样进 argv；normalizeTarget 两段式，url 保留 scheme/路径尾巴）；fix1_extra.ValidateExtraArgs 取值旗标挂尾 Go 层收闸；ProbePython 10s 超时树杀（解释器挂起不再冻死事件循环）；自检 goroutine 数据竞争消除；统计卡窄主区折两行。
+- **对抗测试**：adv2 三件（adv2_uipath / adv2_helpers / adv2_concurrency）——放行矩阵 wantTarget 改钉归一形态、取值旗标挂尾行由放行矩阵迁入拒绝矩阵（「校验值≠执行值」缺口消除）。
+- 纪律：两笔提交均经用户常设授权 `--no-verify` 降级（Mimosa 复扫命中的 medium 均属已台账背书 advisory 家族，行零改动），pathspec 仅 desktop-native。
+
+### 复核结论
+
+- **独立冷复核**（desktop-native/docs/REVIEW-native.md，独立复核员未参与施工，2026-10-05）：**5 项核对全部 PASS**——①原生定位（go.mod 无 wails/webview、CGO_ENABLED=0、真 Win32 窗口 PID/HWND/TITLE 实取 `信息收集工具`）；②产品名（窗口标题 app.go:138 / 关于页 page_settings.go:169 / main.go:21 三处代码+实跑双证，`grep -rn "侦察工具"` 全树零命中）；③三铁律（零 AI/对话/遥测——grep 唯一命中是关于页自我声明文案本身；白名单闸与 desktop-go 对照可执行代码逐字节相同、仅注释差 5 行 vs 1 行，三条红线一致 whitelist.go:14-18；应用层零 Python 运行时依赖，引擎仅 runner.go 子进程）；④build+test（复核员亲跑 `go build` + `go test -count=1` 四包全绿）；⑤真窗口视觉验收 **PASS**——7 个 low/cosmetic 打磨项 + 5 个如实声明的未跑子项，**无 high/medium，允许交付**。
+- **架构师追加复核（本轮，2026-10-05 实跑）**：
+  - `C:/Go/go/bin/go.exe build ./...`（desktop-native/）exit 0；`go test -count=1 ./...` → engine 25.185s / store 6.631s / ui 6.160s / whitelist 0.211s **四包 ok 全绿** ✅
+  - `ls -la recon-native.exe` → 18,066,944 字节在位（02:32 复核员重建产物）✅
+  - `grep -rn "侦察工具" desktop-native --include=*.go --include=*.md` → 仅 REVIEW-native.md 引文自命中，代码/UI 零命中 ✅
+  - `diff` whitelist.go（native vs desktop-go）→ 仅注释差异（归一口径说明），与复核 §3.2 一致 ✅；`git ls-files desktop-native/docs/` → DESIGN-native.md 与 SECURITY-ADVISORIES.md 已入库 ✅
+  - `git status -sb` → `main...origin/main` 无 ahead/behind 标记（基于本地引用，本轮未 fetch 网络核实远端实态）
+
+### 遗留
+
+1. **复核件未入库**：desktop-native/docs/REVIEW-native.md + docs/review-native-shots/（39 PNG + stage1-9.ps1）仍 untracked——下轮开工先以仅带 desktop-native 的 pathspec commit（铁律 5 每轮收尾）。
+2. REVIEW-native 问题表 7 项 low/cosmetic：结果页首进「第 0/1 页」显示（page_results.go:174 + app.go:168-183）；无单实例互斥（真双开实证 shot-14）；任务运行中点 X 无确认弹窗（app.go:156-157 直接 StopAll，Job Object 树杀缓解）；无窗口尺寸记忆（固定 1180x760）；结果页无「删除任务」入口；「全部/全部模块」并存易混；单选钮 Tab 焦点环不可辨。
+3. **未跑清单（如实声明，非通过项）**：A2 最小尺寸拖拽、A4 的 100% DPI 档、B3 100+ 行滚动压测、C1 Esc 停止实测、D3 断点续传 UI 走查；`go test -race` 本机无 cgo/gcc 不可跑（65d4ee2 提交信息已建议 CI 补跑）。
+4. webview 版 desktop-go/ 按裁定保留为**参考实现**：其工作树现有在途未提交改动（frontend 10 件 M + assets/、docs/design-proposals/、internal/ico/、tools/ 等 untracked）属其他线，遵提交纪律不动、不提交、不带 pathspec。
+5. 主题融合裁定：深色「石板声呐」唯一规范主题，浅色/双主题机制缓议另立项（DESIGN-native.md 头注）。本册 webview 线的 c2/美术轮未另立 GOAL 节（收口见提交 `4853fc5` / `7aa31bd` / `d1f6fc8` / `a3a3c0c` 与 REVIEW-c1），原生线起以本节为准续追。
+
+---
+*后续轮次按此格式续追。*

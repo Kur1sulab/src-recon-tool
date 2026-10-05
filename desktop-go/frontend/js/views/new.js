@@ -1,8 +1,10 @@
 /* ============================================================
  * views/new.js — ② 新建任务：目标 + 子命令下拉 + 可选参数 + 白名单提示
- * 提交 POST /api/scans → 跳转任务详情。
+ * 提交 POST /api/scans → 跳转任务详情；提交中按钮文案变「提交中…」，失败还原。
  * 目标输入支持 ↑/↓ 回填会话内存历史（App.targetHistory，刷新即失，
  * 不用 localStorage）；「重开」经 App.reopenPrefill 跨页预填。
+ * 白名单仅 enter 时与「离线恢复沿」（API.onStatus）加载；离线时坐在本页，
+ * 服务恢复后自动重拉白名单并清提示，不用手动切页。
  * ============================================================ */
 (function () {
   "use strict";
@@ -113,10 +115,11 @@
       ul.appendChild(App.h("li", { class: "wl-loading", text: "白名单暂不可用（服务端未返回）" }));
       return;
     }
+    // 条目注释与设置页口径一致：本机 mock 靶站 / 用户自有资产（已授权）
     whitelist.forEach(function (w) {
-      ul.appendChild(App.h("li", {
-        text: String(w) + (String(w).indexOf("127.0.0.1") === 0 ? "（本机 mock 靶站）" : "（自有资产）")
-      }));
+      var entry = String(w);
+      var note = entry.indexOf("127.0.0.1") === 0 ? "本机 mock 靶站" : "用户自有资产（已授权）";
+      ul.appendChild(App.h("li", { text: entry + " · " + note }));
     });
   }
 
@@ -134,10 +137,28 @@
 
   function loadEnv() {
     return API.env().then(function (env) {
+      needsEnvReload = false;
       renderWhitelist(env);
       updateHints();
     }).catch(function (err) {
+      needsEnvReload = true;
       renderWhitelistError(err);
+    });
+  }
+
+  /* ---------- 离线恢复自动重载：坐在本页时服务恢复，白名单自动重拉 ---------- */
+
+  var needsEnvReload = false; // 白名单加载失败后置位，离线恢复沿触发重拉
+  var statusHooked = false;
+
+  function hookStatus() {
+    if (statusHooked) return;
+    statusHooked = true;
+    API.onStatus(function (offline) {
+      if (!offline && needsEnvReload) {
+        needsEnvReload = false;
+        loadEnv(); // 成功路径会重画白名单并刷新提示，清掉「尚未加载完成」警示
+      }
     });
   }
 
@@ -175,8 +196,10 @@
 
     var btn = document.getElementById("newSubmit");
     btn.disabled = true;
+    btn.textContent = "提交中…"; // 弱网下给忙碌反馈，避免「点了没反应」
     API.createScan(target, cmd, args).then(function (res) {
       btn.disabled = false;
+      btn.textContent = "开始扫描";
       var id = res && res.id;
       App.rememberTarget(target); // 会话内历史：↑ 可回填
       App.toast("任务已创建（" + App.shortId(id) + "）", "ok");
@@ -188,12 +211,14 @@
       if (id) App.navigate("#/detail/" + encodeURIComponent(id));
     }).catch(function (err) {
       btn.disabled = false;
+      btn.textContent = "开始扫描"; // 失败还原，可改后重提
       showError(err && err.message ? err.message : "创建任务失败");
     });
   }
 
   App.registerView("new", {
     enter: function () {
+      hookStatus(); // 注册离线恢复沿（只注册一次）
       document.getElementById("newCmd").onchange = updateHints;
       document.getElementById("newTarget").oninput = targetInput;
       document.getElementById("newTarget").onkeydown = targetKeydown;

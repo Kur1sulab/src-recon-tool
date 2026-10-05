@@ -59,9 +59,9 @@
   <!-- ═══ 主区 ═══ -->
   <div class="main">
     <header class="topbar">
-      <h1 class="view-title" id="viewTitle">任务列表</h1>
+      <h1 class="view-title" id="viewTitle" tabindex="-1">任务列表</h1>
       <div class="topbar-side">
-        <span class="esc-hint hidden" id="escHint"><kbd>Esc</kbd> 停止运行中任务</span>
+        <span class="esc-hint hidden" id="escHint"><kbd>Esc</kbd> 连按两次停止运行中任务</span>
       </div>
     </header>
 
@@ -74,15 +74,25 @@
       <!-- ① 任务列表 -->
       <section class="view" id="view-tasks" hidden>
         <div class="stat-row" id="taskStats" aria-label="任务统计"></div>
+        <div class="field-hint hidden" id="taskStatsStale">统计数字为离线前的旧值，本地服务恢复后自动更新。</div>
         <div class="panel">
           <div class="panel-head">
             <div class="panel-title">扫描任务</div>
             <div class="panel-actions">
+              <select class="input" id="taskStatusFilter" aria-label="按状态筛选任务列表">
+                <option value="all">全部状态</option>
+                <option value="created">待开始</option>
+                <option value="running">运行中</option>
+                <option value="done">已完成</option>
+                <option value="fail">失败</option>
+                <option value="stopped">已停止</option>
+              </select>
               <button class="btn" id="tasksRefresh" type="button">刷新</button>
               <a class="btn btn-primary" href="#/new">新建任务</a>
             </div>
           </div>
           <div class="table-wrap" id="tasksTableWrap"></div>
+          <div class="pager" id="tasksPager"></div>
         </div>
       </section>
 
@@ -144,7 +154,8 @@
               <div class="panel-title" id="detailHeading">任务详情</div>
               <div class="panel-actions">
                 <button class="btn" id="detailRefresh" type="button">刷新</button>
-                <button class="btn btn-danger" id="detailStop" type="button" hidden>停止任务</button>
+                <!-- hidden 属性会被 .btn 的 display 规则盖过，必须叠加 .hidden 类才能真隐藏 -->
+                <button class="btn btn-danger hidden" id="detailStop" type="button" hidden>停止任务</button>
               </div>
             </div>
             <div class="kv-grid" id="detailMeta"></div>
@@ -185,27 +196,39 @@
           </div>
           <div class="kv-grid" id="evMeta"></div>
           <div class="table-wrap" id="evArtifactsWrap"></div>
+          <div class="pager" id="evArtifactsPager"></div>
           <div class="form-error hidden" id="evError" role="alert"></div>
           <div class="form-actions">
             <button class="btn btn-primary" id="evExport" type="button">导出证据包（.zip）</button>
+            <span class="submit-note hidden" id="evExportNote">任务运行中，结束后即可导出。</span>
             <span class="submit-note" id="evPathNote"></span>
           </div>
         </div>
       </section>
 
-      <!-- ⑤ 设置 -->
+      <!-- ⑤ 设置：运行环境自检 / 授权目标白名单 / 关于 -->
       <section class="view" id="view-settings" hidden>
         <div class="panel">
           <div class="panel-head">
-            <div class="panel-title">运行环境</div>
+            <div class="panel-title">运行环境自检</div>
             <div class="panel-actions"><button class="btn btn-primary" id="envCheck" type="button">运行自检</button></div>
           </div>
           <div class="kv-grid" id="envGrid"></div>
+          <div class="pipeline-note">开发联调：mock 靶站是本机测试站（tests/mock_server.py，监听 127.0.0.1:8799），只用于本地验证，不属于外部目标。</div>
         </div>
         <div class="panel">
           <div class="panel-head"><div class="panel-title">授权目标白名单（只读）</div></div>
           <div class="table-wrap" id="envWhitelistWrap"></div>
           <div class="panel-foot">白名单内置于服务端，无法在本页面修改。名单之外的任何扫描目标都会被拒绝（403）。</div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><div class="panel-title">关于</div></div>
+          <div class="kv-grid">
+            <div class="k">产品名</div><div class="v">信息收集工具</div>
+            <div class="k">版本</div><div class="v mono">src-recon-tool（本机构建，随仓库更新）</div>
+            <div class="k">定位</div><div class="v">专精信息收集：子域枚举、资产测绘、指纹识别、敏感路径、API 面梳理。</div>
+            <div class="k">数据边界</div><div class="v">纯本地运行：无 AI 功能、无联网模型调用、无遥测上报，扫描数据只保存在本机。</div>
+          </div>
         </div>
       </section>
 

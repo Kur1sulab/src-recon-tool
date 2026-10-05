@@ -1,19 +1,24 @@
 /* ============================================================
    信息收集工具 · src-recon-tool 桌面端 —「石板声呐 Slate Sonar」
-   视觉体系 r1：深蓝石板控制室 + 单一青鹤强调 + 圆形声呐 LED
-   + 等宽数据列 + 斑马纹数据行。体系论证与令牌语义见 DESIGN.md。
+   视觉体系 r3 终稿：深蓝石板控制室 + 单一青鹤强调 + 圆形声呐 LED
+   + 等宽数据列 + 斑马纹数据行 + 应用内确认面板。
+   体系论证、类名契约、硬边界与验收门禁见 DESIGN.md 终稿。
    ------------------------------------------------------------
    纪律：
-   · 颜色一律 var() 引 tokens.css，本文件零裸色值。
+   · 颜色一律 var() 引 tokens.css，本文件零裸色值（门禁 grep 零命中）。
    · 零外链：无网络字体、无 url() 资源；图标为 index.html 内
-     手写线条 SVG。
-   · 动效仅 opacity/transform 两个通道（LED 呼吸、toast 进场）；
-     prefers-reduced-motion 下全部压至 0.01ms。
+     手写线条 SVG（八条硬参数见 DESIGN.md）。
+   · 动效仅 opacity/transform 两个通道；持续动画全站仅 LED 呼吸
+     一种；进场 ≤180ms、位移 ≤6px；颜色/边框/填充一律即时切换
+     禁补间；prefers-reduced-motion 下全部压至 0.01ms（文件末尾
+     兜底块，不可移除）。
+   · 类名契约：BEM-lite 单层 + data 属性状态；新增组件先在
+     DESIGN.md「类名契约」登记再进本文件。
    ============================================================ */
 
 @import url("tokens.css");
 
-/* ---------- 基底 ---------- */
+/* ============ 基底 ============ */
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -29,6 +34,9 @@ body {
 }
 
 .hidden { display: none !important; }
+
+/* JS 动态态：警示文字（field-hint 目标未填/格式提示等） */
+.warn { color: var(--warn); }
 
 /* 全局键盘焦点环：2px 品牌青，即时显隐不补间 */
 :focus-visible {
@@ -61,7 +69,7 @@ kbd {
 a { color: var(--acc-hi); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
-/* ---------- 布局骨架 ---------- */
+/* ============ 布局骨架 ============ */
 
 .app {
   display: grid;
@@ -87,7 +95,7 @@ a:hover { text-decoration: underline; }
 .view { max-width: var(--view-max); }
 .view > .panel + .panel { margin-top: var(--sp-4); }
 
-/* ---------- 侧栏 ---------- */
+/* ============ 壳层：侧栏 ============ */
 
 .sidebar {
   display: flex;
@@ -105,11 +113,14 @@ a:hover { text-decoration: underline; }
   padding: 2px var(--sp-2) var(--sp-4);
 }
 
+/* 品牌标：30px 线条 SVG（stroke 1.6，中心点唯一 fill 例外） */
 .brand-mark {
   width: 30px; height: 30px;
   color: var(--acc);
   flex: none;
 }
+
+.brand-text { min-width: 0; }
 
 .brand-name {
   font-size: var(--fs-15);
@@ -130,6 +141,7 @@ a:hover { text-decoration: underline; }
   margin-top: var(--sp-1);
 }
 
+/* 导航图标：17px 渲染、stroke 1.8（index.html 内联 SVG 参数） */
 .nav-item {
   position: relative;
   display: flex;
@@ -145,6 +157,7 @@ a:hover { text-decoration: underline; }
 .nav-item span { flex: 1; }
 .nav-item:hover { color: var(--tx-1); background: var(--s2); text-decoration: none; }
 
+/* active 态由 js classList.toggle("active") 驱动 */
 .nav-item.active {
   color: var(--tx-1);
   background: var(--acc-bg);
@@ -177,7 +190,10 @@ a:hover { text-decoration: underline; }
   color: var(--tx-2);
 }
 
-/* 圆形声呐 LED：本体系的状态识别符号 */
+/* 圆形声呐 LED：本体系的状态识别符号，一律圆形禁方形。
+   三态由 js 拼 class（offline/online/checking）；LED 底均为
+   s1 侧栏，待命灰 idle 对 s1 过 3:1 非文字门槛，对 s3 井底
+   仅 2.92:1——禁放交互井底（DESIGN.md 硬边界）。 */
 .dot {
   width: 8px; height: 8px;
   border-radius: var(--r-full);
@@ -194,7 +210,7 @@ a:hover { text-decoration: underline; }
   color: var(--tx-3);
 }
 
-/* ---------- 顶栏 ---------- */
+/* ============ 壳层：顶栏 ============ */
 
 .topbar {
   display: flex;
@@ -208,6 +224,8 @@ a:hover { text-decoration: underline; }
   flex: none;
 }
 
+/* 页题：切页焦点锚点（#viewTitle tabindex=-1 由结构线落地，
+   编程聚焦后落在本全局 :focus-visible 环上） */
 .view-title {
   font-size: var(--fs-15);
   font-weight: 600;
@@ -218,7 +236,12 @@ a:hover { text-decoration: underline; }
 
 .esc-hint { font-size: var(--fs-12); color: var(--tx-2); }
 
+/* 离线横幅：warn 族三档（字/底/边）；「立即重试」复用 .btn */
 .offline-banner {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-3);
   padding: var(--sp-2) var(--pad-x);
   font-size: var(--fs-13);
   color: var(--warn);
@@ -227,7 +250,7 @@ a:hover { text-decoration: underline; }
   flex: none;
 }
 
-/* ---------- 面板 ---------- */
+/* ============ 面板 ============ */
 
 .panel {
   background: var(--s2);
@@ -264,13 +287,17 @@ a:hover { text-decoration: underline; }
 
 .panel-actions { display: flex; gap: var(--sp-2); align-items: center; }
 
+/* 面板头右侧的状态筛选 select（复用 .input）与任务选择器
+   不需要全宽：在 actions 行内收缩为内容宽 */
+.panel-actions .input { width: auto; }
+
 .panel-foot {
   margin-top: var(--sp-3);
   font-size: var(--fs-12);
   color: var(--tx-3);
 }
 
-/* ---------- 数据表（秩序感核心：斑马纹 / 等宽数据列 / 悬停内轨） ---------- */
+/* ============ 数据表（秩序感核心：斑马纹 / 等宽数据列 / 悬停内轨） ============ */
 
 .table-wrap { overflow-x: auto; }
 
@@ -280,6 +307,7 @@ table.data {
   font-size: var(--fs-13);
 }
 
+/* 表头 11px + 0.06em 字距 + tx-2（7.1:1，不用弱注档） */
 table.data th {
   text-align: left;
   font-weight: 500;
@@ -291,6 +319,7 @@ table.data th {
   white-space: nowrap;
 }
 
+/* 唯一密度档：行高 ≈34px（上下 7px + 13px 基准） */
 table.data td {
   padding: 7px 10px;
   border-bottom: 1px solid var(--ln-1);
@@ -308,7 +337,8 @@ table.data tbody tr:hover td:first-child {
 
 table.data tbody tr:last-child td { border-bottom: none; }
 
-/* 等宽数据列：ID / 目标 / 时间戳 / 路径一律等宽 + 表列数字对齐 */
+/* 等宽数据列：ID / 目标 / URL / 耗时 / 大小 / 时间戳 / 日志一律
+   等宽 + tabular-nums；800ms 轮询刷新列位不跳靠的就是它 */
 td.mono, .mono {
   font-family: var(--font-mono);
   font-size: var(--fs-12);
@@ -332,10 +362,10 @@ td.num {
 .empty-hint .btn { margin-top: 10px; }
 .empty-hint .btn + .btn { margin-left: 6px; }
 
-/* 长目标/长路径在数据列内折行（B1 溢出防线） */
+/* 长目标/长路径/长 URL 在数据列内折行（溢出防线） */
 table.data td.mono { overflow-wrap: anywhere; }
 
-/* ---------- 统计卡行（任务列表；数字全部由列表现算） ---------- */
+/* ============ ① 任务列表：统计卡行（数字全部由列表现算） ============ */
 
 .stat-row {
   display: grid;
@@ -361,7 +391,7 @@ table.data td.mono { overflow-wrap: anywhere; }
 .stat-card[data-k="done"]    .dot { background: var(--ok); }
 .stat-card[data-k="fail"]    .dot { background: var(--err); }
 
-/* 运行中 > 0 时 LED 呼吸（opacity 通道，唯一动效状态） */
+/* 运行中 > 0 时 LED 呼吸（opacity 通道，全站唯一持续动画） */
 .stat-card .dot.live { animation: breathe var(--dur-breathe) ease-in-out infinite; }
 
 .stat-num {
@@ -383,7 +413,12 @@ table.data td.mono { overflow-wrap: anywhere; }
   color: var(--tx-2);
 }
 
-/* ---------- 分页器（详情页长表：进度事件 / 产物清单） ---------- */
+/* 离线回落：错态时统计卡灰显（行内叠 opacity，不换色值），
+   配合「数据为离线前旧值」文案由行为线加/摘 data-stale */
+.stat-card[data-stale="true"] { opacity: .55; }
+
+/* ============ 分页器（任务列表 / 详情进度 / 产物 / 证据包共用；
+   PAGE=50，页码跨轮询保持是行为线职责） ============ */
 
 .pager {
   display: flex;
@@ -401,7 +436,8 @@ table.data td.mono { overflow-wrap: anywhere; }
   color: var(--tx-3);
 }
 
-/* ---------- 状态徽标 ---------- */
+/* ============ 状态徽标（.chip[data-s] 五态着色契约——
+   新增状态先加 data-s 值再进 CSS） ============ */
 
 .chip {
   display: inline-flex;
@@ -419,10 +455,12 @@ table.data td.mono { overflow-wrap: anywhere; }
 
 .chip .dot { width: 7px; height: 7px; }
 
+/* created=待开始：idle-bg 淡底 + 待命灰点（idle LED 只对 s2/idle-bg
+   过 3:1，禁放 s3 井底——DESIGN.md 硬边界） */
 .chip[data-s="created"]  { color: var(--tx-2); background: var(--idle-bg); }
 .chip[data-s="created"] .dot { background: var(--idle); }
 
-/* 运行中：亮青字 + LED 呼吸（唯一带动画的状态） */
+/* running=运行中：亮青字 + LED 呼吸（唯一带动画的状态） */
 .chip[data-s="running"]  { color: var(--acc-hi); border-color: var(--acc-lo); }
 .chip[data-s="running"] .dot {
   background: var(--acc);
@@ -438,7 +476,11 @@ table.data td.mono { overflow-wrap: anywhere; }
 .chip[data-s="stopped"]  { color: var(--warn); border-color: var(--warn-lo); }
 .chip[data-s="stopped"] .dot { background: var(--warn); }
 
-/* 环境自检旗标（设置页） */
+/* data-s 未匹配（未知状态）时命中 .chip 基类：中性描边 + tx-2，
+   即兜底态；新增状态先加 data-s 值再进本段。 */
+
+/* ============ ⑤ 设置页：环境自检旗标 ============ */
+
 .chip-lv-ok   { color: var(--ok); }
 .chip-lv-bad  { color: var(--err); }
 .chip-lv-warn { color: var(--warn); }
@@ -446,16 +488,16 @@ table.data td.mono { overflow-wrap: anywhere; }
 .chip-lv-bad .dot  { background: var(--err); }
 .chip-lv-warn .dot { background: var(--warn); }
 
-/* 表格单元格内相邻按钮的间距（任务列表"查看/停止"） */
+/* 表格单元格内相邻按钮的间距（任务列表"查看/停止/重开/删除/证据包"） */
 .data td .btn + .btn { margin-left: 6px; }
 
-/* LED 呼吸：仅 opacity 通道 */
+/* LED 呼吸：仅 opacity 通道，1.6s，运行态专属 */
 @keyframes breathe {
   0%, 100% { opacity: 1; }
   50% { opacity: .3; }
 }
 
-/* ---------- 按钮 ---------- */
+/* ============ 按钮 ============ */
 
 .btn {
   display: inline-flex;
@@ -491,7 +533,7 @@ table.data td.mono { overflow-wrap: anywhere; }
 a.btn { text-decoration: none; }
 a.btn:hover { text-decoration: none; }
 
-/* ---------- 表单 ---------- */
+/* ============ 表单（② 新建任务 / ④ 证据包共用骨架） ============ */
 
 .form-row { margin-bottom: var(--sp-4); }
 
@@ -504,6 +546,7 @@ a.btn:hover { text-decoration: none; }
 
 .opt-mark { color: var(--tx-3); font-size: var(--fs-12); }
 
+/* 输入井：14px 输入字号；输入/下拉沉到 s1 井底 */
 .input {
   width: 100%;
   max-width: 560px;
@@ -527,6 +570,7 @@ a.btn:hover { text-decoration: none; }
 select.input { cursor: pointer; }
 select.input option { background: var(--s1); color: var(--tx-1); }
 
+/* 载态/提示行：固定最小高防抖动；.warn 由 js 动态挂（模块 kind 提示） */
 .field-hint {
   margin-top: 5px;
   font-size: var(--fs-12);
@@ -556,7 +600,7 @@ select.input option { background: var(--s1); color: var(--tx-1); }
 
 .submit-note { font-size: var(--fs-12); color: var(--tx-3); }
 
-/* ---------- 白名单提示框（新建页） ---------- */
+/* ============ ② 新建任务：授权目标白名单提示框 ============ */
 
 .whitelist-box {
   max-width: 560px;
@@ -588,6 +632,7 @@ select.input option { background: var(--s1); color: var(--tx-1); }
   padding: 2px 0;
 }
 
+/* 白名单条目前点：绿色圆形小点（圆形纪律同 LED） */
 .wl-list li::before {
   content: "";
   display: inline-block;
@@ -598,12 +643,13 @@ select.input option { background: var(--s1); color: var(--tx-1); }
   vertical-align: 1px;
 }
 
+/* 载态行：「白名单加载中…」——待命灰点 + UI 字 */
 .wl-list li.wl-loading { color: var(--tx-3); font-family: var(--font-ui); }
 .wl-list li.wl-loading::before { background: var(--idle); }
 
 .wl-note { font-size: var(--fs-12); color: var(--tx-3); }
 
-/* ---------- 键值网格（详情/证据/环境） ---------- */
+/* ============ ③ 任务详情 / ④ 证据包 / ⑤ 设置：键值网格 ============ */
 
 .kv-grid {
   display: grid;
@@ -616,7 +662,7 @@ select.input option { background: var(--s1); color: var(--tx-1); }
 .kv-grid .k { color: var(--tx-3); }
 .kv-grid .v { color: var(--tx-1); min-width: 0; overflow-wrap: anywhere; }
 
-/* ---------- 日志视图（凹井：沉到画布色） ---------- */
+/* ============ ③ 任务详情：日志视图（凹井：沉到画布色） ============ */
 
 .logview {
   font-family: var(--font-mono);
@@ -634,6 +680,7 @@ select.input option { background: var(--s1); color: var(--tx-1); }
   font-variant-numeric: tabular-nums;
 }
 
+/* 模块流水注记行（详情页进度表下） */
 .pipeline-note {
   margin-top: 10px;
   font-size: var(--fs-12);
@@ -644,7 +691,56 @@ select.input option { background: var(--s1); color: var(--tx-1); }
 
 .pipeline-note:empty { display: none; }
 
-/* ---------- 操作反馈条（浮层：唯一允许 --sh-2 的位置） ---------- */
+/* ③ 详情未选任务 / ④ 证据包选择任务：任务选择器行 */
+.task-picker {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  max-width: 560px;
+}
+
+/* ============ 应用内确认面板（本轮新增契约：删除任务等破坏性
+   操作的应用内确认，替代原生 confirm。仅 .confirm-scrim /
+   .confirm-box 两个新类，内部复用 .panel-title 与 .btn；
+   焦点困住与 Esc 关闭是行为线职责） ============ */
+
+.confirm-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-4);
+  background: var(--scrim);
+}
+
+.confirm-box {
+  width: 100%;
+  max-width: 420px;
+  background: var(--s2);
+  border: 1px solid var(--ln-2);
+  border-radius: var(--r-3);
+  padding: var(--sp-4) 18px;
+  box-shadow: var(--sh-2);
+  /* 复用 toast-in 进场（同 0.18s 参数），不新增动画种类 */
+  animation: toast-in var(--dur-toast) ease-out;
+}
+
+.confirm-box .panel-title { margin-bottom: var(--sp-2); }
+
+.confirm-box p {
+  font-size: var(--fs-13);
+  color: var(--tx-2);
+}
+
+.confirm-box .form-actions {
+  margin-top: var(--sp-3);
+  justify-content: flex-end;
+}
+
+/* ============ 操作反馈条（浮层：唯一允许 --sh-2 的常驻位；
+   确认面板遮罩层除外） ============ */
 
 .toast {
   position: fixed;
@@ -665,22 +761,13 @@ select.input option { background: var(--s1); color: var(--tx-1); }
 .toast.ok  { border-color: var(--ok-lo); background: var(--ok-bg); }
 .toast.err { border-color: var(--err-lo); background: var(--err-bg); color: var(--err); }
 
-/* toast 进场：仅 opacity/transform */
+/* toast/确认面板进场：仅 opacity/transform，0.18s、位移 6px */
 @keyframes toast-in {
   from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
-/* ---------- 详情任务选择（未选任务时） ---------- */
-
-.task-picker {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  max-width: 560px;
-}
-
-/* ---------- 窄窗口（桌面壳缩放：收成图标轨） ---------- */
+/* ============ 窄窗（桌面壳缩放：收成图标轨） ============ */
 
 @media (max-width: 760px) {
   .app { grid-template-columns: var(--w-side-narrow) 1fr; }
@@ -694,7 +781,9 @@ select.input option { background: var(--s1); color: var(--tx-1); }
   .topbar { padding: 0 14px; }
 }
 
-/* ---------- 动效纪律：reduced-motion 全灭 ---------- */
+/* ============ 动效纪律：reduced-motion 全灭 ============
+   全局兜底：新增任何动画自动被覆盖；LED 呼吸退化为常亮圆点，
+   状态语义仍由颜色区分。本块必须保持在文件末尾，不可移除。 */
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

@@ -101,7 +101,7 @@
   };
 
   App.STATUS_META = {
-    "created": "已创建",
+    "created": "待开始",
     "running": "运行中",
     "done":    "已完成",
     "fail":    "失败",
@@ -250,6 +250,12 @@
     toastTimer = setTimeout(function () { t.classList.add("hidden"); }, 2800);
   };
 
+  /* ---------- 应用内确认面板挂点（类名契约：.confirm-scrim > .confirm-box） ----------
+   * views/tasks.js 打开确认面板时写入 { close(reason) }，关闭时置回 null。
+   * 全局 Esc 见 keyHandler：面板开着时 Esc 只负责关面板，不做两段式停止。
+   */
+  App.activeConfirm = null;
+
   /* ---------- 视图注册与路由 ---------- */
 
   App.views = {};
@@ -289,7 +295,12 @@
       else a.removeAttribute("aria-current");
     });
     var title = document.getElementById("viewTitle");
-    if (title) title.textContent = VIEW_TITLE[r.name] || r.name;
+    if (title) {
+      title.textContent = VIEW_TITLE[r.name] || r.name;
+      // 切页后把焦点移到页题：旧视图已被 hidden，焦点若留在旧元素上会掉到
+      // body，键盘用户得从头 Tab，读屏器也感知不到页面变更。
+      try { title.focus({ preventScroll: true }); } catch (e2) { title.focus(); }
+    }
     current = r;
     if (App.views[r.name].enter) {
       try { App.views[r.name].enter(r.param); } catch (e) {
@@ -315,22 +326,43 @@
         return;
       }
     }
-    // Esc 停止运行中任务。输入框/下拉/多行文本/可编辑区里的 Esc 是编辑语义
-    // （清空输入、取消候选词），不触发全局停任务——否则一边打字一边误停扫描。
-    // IME 组合中（isComposing）同理放行。
+    // Esc 两段式停止运行中任务：首次按仅提示，2 秒内再按才真停——一轮信息
+    // 收集数分钟起步，一键误停代价高。应用内确认面板打开时 Esc 只关面板。
+    // 输入框/下拉/多行文本/可编辑区里的 Esc 是编辑语义（清空输入、取消候选
+    // 词），不触发全局停任务——否则一边打字一边误停扫描。IME 组合中同理放行。
     if (e.key === "Escape") {
+      if (App.activeConfirm) {
+        e.preventDefault();
+        App.activeConfirm.close("esc");
+        return;
+      }
       var t = e.target;
       var tag = t && t.tagName ? String(t.tagName).toLowerCase() : "";
       if (e.isComposing || tag === "input" || tag === "textarea" ||
           tag === "select" || (t && t.isContentEditable)) {
         return;
       }
-      App.stopMostRelevantRunning();
+      var cand = stopCandidateId();
+      if (!cand) { App.toast("当前没有运行中的任务"); return; }
+      if (escArmed && escArmed.id === cand) {
+        disarmEsc();
+        stopScanById(cand);
+      } else {
+        disarmEsc();
+        escArmed = { id: cand, timer: setTimeout(disarmEsc, 2000) };
+        App.toast("再按一次 Esc 确认停止（任务 " + shortId(cand) + "），2 秒内有效");
+      }
     }
   }
 
-  /** Esc：优先停当前详情任务；否则停最近一个运行中任务 */
-  App.stopMostRelevantRunning = function () {
+  // Esc 两段式的待确认态：{ id, timer }，2 秒超时或目标变化即作废
+  var escArmed = null;
+  function disarmEsc() {
+    if (escArmed) { clearTimeout(escArmed.timer); escArmed = null; }
+  }
+
+  /** 挑停止目标：优先当前详情任务；否则最近一个运行中任务 */
+  function stopCandidateId() {
     var route = App.currentRoute();
     var candidateId = null;
     if (route.name === "detail" && route.param) candidateId = route.param;
@@ -340,12 +372,22 @@
         if (list[i].status === "running") { candidateId = list[i].id; break; }
       }
     }
-    if (!candidateId) { App.toast("当前没有运行中的任务"); return; }
-    API.stopScan(candidateId).then(function () {
-      App.toast("停止指令已提交（任务 " + shortId(candidateId) + "）", "ok");
+    return candidateId;
+  }
+
+  function stopScanById(id) {
+    API.stopScan(id).then(function () {
+      App.toast("停止指令已提交（任务 " + shortId(id) + "）", "ok");
     }).catch(function (err) {
       App.toast(err && err.message ? err.message : "停止失败", "err");
     });
+  }
+
+  /** 直接停止（行内「停止」按钮用）：优先停当前详情任务，否则最近一个运行中任务 */
+  App.stopMostRelevantRunning = function () {
+    var id = stopCandidateId();
+    if (!id) { App.toast("当前没有运行中的任务"); return; }
+    stopScanById(id);
   };
 
   function shortId(id) { return String(id || "").slice(0, 8); }
