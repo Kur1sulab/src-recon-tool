@@ -94,6 +94,35 @@ func tlsProbeConfig() *tls.Config {
 	return &tls.Config{InsecureSkipVerify: skipVerify}
 }
 
+// ProbeTransport 返回探测用 HTTP 传输层（TLS 语义 = tlsProbeConfig：对
+// 自签/过期证书站点放行握手，仅内容探测、不做身份认证/传密）。
+// 供需要自建 client 的包（如 baseline 的取头/逐跳链检查）复用，
+// 保证「跳过校验」这一探测策略单点定义在本包，不在外扩散。
+func ProbeTransport() *http.Transport {
+	return &http.Transport{
+		TLSClientConfig:     tlsProbeConfig(),
+		DisableCompression:  true,
+		Proxy:               http.ProxyFromEnvironment,
+		TLSHandshakeTimeout: 10 * time.Second,
+	}
+}
+
+// ProbeTLSConfig 返回证书取证用 TLS 配置（同 tlsProbeConfig 单点：握手期
+// 放行自签/过期/域名不匹配证书，以便取到完整证书链——取证后由调用方用
+// x509.Verify 显式判定建链，sslchain 模块语义；此免校验不代表信任任何链）。
+// minVers/maxVers 非 0 时钳位（协议矩阵探测用）。
+func ProbeTLSConfig(serverName string, minVers, maxVers uint16) *tls.Config {
+	cfg := tlsProbeConfig()
+	cfg.ServerName = serverName
+	if minVers != 0 {
+		cfg.MinVersion = minVers
+	}
+	if maxVers != 0 {
+		cfg.MaxVersion = maxVers
+	}
+	return cfg
+}
+
 // shortDigest 计算内容形态指纹（语义对齐 Python hashlib 摘要取前 16 位 hex）。
 func shortDigest(b []byte) string {
 	return hexDigestPrefix16(b)

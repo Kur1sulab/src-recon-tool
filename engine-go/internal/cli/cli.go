@@ -15,6 +15,7 @@ import (
 
 	"github.com/Kur1sulab/src-recon-tool/engine-go/internal/apiunauth"
 	"github.com/Kur1sulab/src-recon-tool/engine-go/internal/asset"
+	"github.com/Kur1sulab/src-recon-tool/engine-go/internal/baseline"
 	"github.com/Kur1sulab/src-recon-tool/engine-go/internal/fingerprint"
 	"github.com/Kur1sulab/src-recon-tool/engine-go/internal/icp"
 	"github.com/Kur1sulab/src-recon-tool/engine-go/internal/netutil"
@@ -39,6 +40,7 @@ const helpText = `recon-go — SRC 信息收集自动化工具（Go 引擎，仅
   recon-go portscan -t 47.100.49.228      # 暂不移植（c3 拍板，exit 2）
   recon-go fingerprint -u https://example.com
   recon-go paths -u https://example.com   # ✅ c2
+  recon-go baseline -d example.com [--checks secheaders,webfiles]  # ✅ c2（域名暴露面基线 8 检查）
   recon-go poc -t https://example.com -p pocs/example.yaml  # ✅ c2（YAML 引擎）
   recon-go llm -d example.com             # 已弃用，Go 版不移植（exit 2）
   recon-go report -t example.com          # ✅ c2（资产档案+证据包）
@@ -50,6 +52,7 @@ var knownCmds = map[string]bool{
 	"all": true, "subdomain": true, "verify": true, "asset": true, "reverse": true,
 	"icp": true, "api": true, "fingerprint": true, "paths": true, "jsintel": true,
 	"portscan": true, "poc": true, "llm": true, "report": true,
+	"baseline": true, // 域名暴露面基线（report §5.9；桌面第二子进程，非 Python recon.py 对齐项）
 }
 
 // Run 处理全局参数与子命令（args 不含程序名），返回进程退出码。
@@ -271,23 +274,35 @@ func dispatch(cmd string, rest []string) int {
 		}
 		return 0
 
-	case "paths": // recon.py:191-192：paths -u/--url
+	case "paths": // recon.py:191-192：paths -u/--url（Go 侧补 --extra 补充字典，report §5.2）
 		fs := newFlagSet()
 		u := fs.String("u", "", "")
 		uAlias := fs.String("url", "", "")
-		if c := parseOrUsage(fs, rest, cmd, "paths -u <url>"); c != -1 {
+		extraFile := fs.String("extra", "", "补充字典文件（一行一路径，如 baseline webfiles 的 paths_extra.txt）")
+		if c := parseOrUsage(fs, rest, cmd, "paths -u <url> [--extra <file>]"); c != -1 {
 			return c
 		}
 		url := pickAliasLastWins(rest, map[string]*string{"-u": u, "--url": uAlias})
 		if url == "" {
-			return missingArgs(cmd, "paths -u <url>")
+			return missingArgs(cmd, "paths -u <url> [--extra <file>]")
+		}
+		var extra []string
+		if path := strings.TrimSpace(*extraFile); path != "" {
+			b, rerr := os.ReadFile(path)
+			if rerr != nil {
+				fmt.Printf("[!] --extra 文件读取失败: %v\n", rerr)
+				return 2
+			}
+			for _, ln := range strings.Split(string(b), "\n") {
+				extra = append(extra, strings.TrimSpace(ln))
+			}
 		}
 		out, err := MakeOutdir(url)
 		if err != nil {
 			fmt.Printf("[!] 输出目录创建失败: %v\n", err)
 			return 1
 		}
-		if _, err := paths.RunPaths(url, out); err != nil {
+		if _, err := paths.RunPaths(url, out, extra...); err != nil {
 			return 1 // fix3：写盘失败 → fail 事件 + exit 1
 		}
 		return 0
@@ -324,6 +339,57 @@ func dispatch(cmd string, rest []string) int {
 		}
 		if report.RunReport(out, t) == "" {
 			return 1 // fix3：report.md 写盘失败（RunReport 以 "" 标记）→ fail 事件 + exit 1
+		}
+		return 0
+
+	case "baseline": // report §5.9：域名暴露面基线 8 检查聚合（-d 必填 + 形状校验 + --checks 过滤）
+		fs := newFlagSet()
+		domain := fs.String("d", "", "")
+		domainAlias := fs.String("domain", "", "")
+		u := fs.String("u", "", "")
+		uAlias := fs.String("url", "", "")
+		checks := fs.String("checks", "", "逗号分隔检查名过滤（默认全跑 8 项）")
+		if c := parseOrUsage(fs, rest, cmd, "baseline -d <domain> [-u <url>] [--checks c1,c2,...]"); c != -1 {
+			return c
+		}
+		d := pickAliasLastWins(rest, map[string]*string{"-d": domain, "--domain": domainAlias})
+		if d == "" {
+			return missingArgs(cmd, "baseline -d <domain> [-u <url>] [--checks c1,c2,...]")
+		}
+		// 域名形状校验（与 icp 同闸，注入/路径形态入口拒绝）
+		if bad, why := invalidDomainShape(d); bad {
+			fmt.Printf("[!] 非法域名（%s）: %q\n", why, d)
+			return 2
+		}
+		// --checks 归一化在 MakeOutdir/PickBase 之前（未知检查名 exit 2，零网络副作用）
+		checkNames := []string(nil)
+		if strings.TrimSpace(*checks) != "" {
+			var err error
+			checkNames, err = baseline.NormalizeChecks(strings.Split(*checks, ","))
+			if err != nil {
+				fmt.Printf("[!] %v\n", err)
+				return 2
+			}
+		}
+		out, err := MakeOutdir(d)
+		if err != nil {
+			fmt.Printf("[!] 输出目录创建失败: %v\n", err)
+			return 1
+		}
+		// -u 缺省：HTTP 类检查入口从域名推导（PickBase 探测 https/http，
+		// 全失败回退 https://<d>；桌面首版只传 -d 时走此分支）
+		url := pickAliasLastWins(rest, map[string]*string{"-u": u, "--url": uAlias})
+		if url == "" {
+			url = PickBase(d)
+		}
+		if err := baseline.Run(baseline.Options{
+			Domain: d, URL: url, Out: out, Checks: checkNames,
+			AllowPrivate: true, // 桌面契约：授权内网目标放行（白名单由桌面线守）
+			Emit:         emit,
+			Logf:         func(f string, a ...any) { fmt.Printf(f, a...) },
+		}); err != nil {
+			fmt.Printf("[!] baseline: %v\n", err)
+			return 1 // 聚合器自身错误（未知检查名兜底/outdir）→ fail + exit 1
 		}
 		return 0
 

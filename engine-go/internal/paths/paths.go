@@ -35,19 +35,42 @@ type Row struct {
 	Recheck  []netutil.Attempt `json:"recheck,omitempty"`
 }
 
+// mergeExtra --extra 补充字典归并（report §5.2）：extra 条目（一行一路径）
+// 去重、剔空、剔除与内置字典重复项、保序——返回值直接追加到 PathsList。
+func mergeExtra(extra []string) []string {
+	inDict := map[string]bool{}
+	for _, p := range PathsList {
+		inDict[p] = true
+	}
+	seen := map[string]bool{}
+	out := []string{}
+	for _, p := range extra {
+		p = strings.TrimSpace(p)
+		if p == "" || seen[p] || inDict[p] {
+			continue
+		}
+		seen[p] = true
+		out = append(out, p)
+	}
+	return out
+}
+
 // RunPaths 敏感路径探测主流程，对齐 paths.py:29-67。返回存活行。
-func RunPaths(url, out string) ([]Row, error) {
+// extra 为补充字典条目（--extra 文件读入，一行一路径，如 baseline webfiles
+// 产出的 paths_extra.txt），归并去重后与内置字典一并探测。
+func RunPaths(url, out string, extra ...string) ([]Row, error) {
 	base := strings.TrimRight(url, "/")
 	hop := netutil.HopPolicy(base) // fix2 P1：逐跳校验（策略由入口公网/私网推导）
+	dict := append(append([]string{}, PathsList...), mergeExtra(extra)...)
 	bl := netutil.Baseline(base, 0, hop)
-	fmt.Printf("[*] 敏感路径探测: %s（%d 条字典）\n", url, len(PathsList))
+	fmt.Printf("[*] 敏感路径探测: %s（%d 条字典）\n", url, len(dict))
 	fmt.Printf("[*] 站点基线: %s（随机路径 → %d, %dB）\n", bl.Kind, bl.Status, bl.Size)
 	switch bl.Kind {
 	case "soft404", "uniform403", "redirect":
 		fmt.Printf("[!] 存在 catch-all（%s），形态一致的响应不计入存活\n", bl.Kind)
 	}
 	var alive, notes []Row
-	for _, p := range PathsList {
+	for _, p := range dict {
 		r := netutil.Fetch(base+p, netutil.FetchOpt{Follow: true, HopCheck: hop})
 		row := Row{
 			Path: p, Status: r.Status, Size: r.Size, Ctype: r.Ctype,

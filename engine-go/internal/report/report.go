@@ -75,8 +75,8 @@ func readLines(path string) []string {
 	return out
 }
 
-// Collect 把各模块产出读进 Bundle（map，11 键对齐 report.py:39-64；
-// 缺文件→零值不编造；icp_*.json glob 聚合按 domain 键）。
+// Collect 把各模块产出读进 Bundle（map，11 键对齐 report.py:39-64 + 基线 8 槽位
+//（report §5.0，键名=文件名主干）；缺文件→零值不编造；icp_*.json glob 聚合按 domain 键）。
 func Collect(out, target string) map[string]any {
 	bundle := map[string]any{
 		"target":          target,
@@ -92,6 +92,15 @@ func Collect(out, target string) map[string]any {
 		"ports":           orMap(readJSON(filepath.Join(out, "ports.json"))),
 		"assets":          readLines(filepath.Join(out, "assets.txt")),
 		"llm_summary":     "",
+		// 域名暴露面基线 8 槽位（§5.0：缺文件零值不编造，语义不变）
+		"secheaders": orMap(readJSON(filepath.Join(out, "secheaders.json"))),
+		"webfiles":   orMap(readJSON(filepath.Join(out, "webfiles.json"))),
+		"mailsec":    orMap(readJSON(filepath.Join(out, "mailsec.json"))),
+		"archives":   orMap(readJSON(filepath.Join(out, "archives.json"))),
+		"sslchain":   orMap(readJSON(filepath.Join(out, "sslchain.json"))),
+		"dnsrec":     orMap(readJSON(filepath.Join(out, "dnsrec.json"))),
+		"whois":      orMap(readJSON(filepath.Join(out, "whois.json"))),
+		"geoasn":     orMap(readJSON(filepath.Join(out, "geoasn.json"))),
 	}
 	pattern := filepath.Join(out, "icp_*.json")
 	matches, _ := filepath.Glob(pattern)
@@ -393,11 +402,88 @@ func RenderMD(b map[string]any) string {
 		a("")
 	}
 
+	// 9. 域名暴露面基线（report §5.0：每检查一小节；至少一份产物在场才渲染，
+	// 未运行的检查无文件不展示、不编造）
+	renderBaselineSection(a, b)
+
 	a("## 待人工跟进\n")
 	a("- [ ] 对上述存活项逐条复核（复核命令见各证据目录 `repro.md`）")
 	a("- [ ] 对未复验通过的疑似项降低优先级，避免写进报告")
 	a("- [ ] 结论只写实测内容；推演内容必须标注【推演】")
 	return strings.Join(L, "\n")
+}
+
+// baselineSectionKeys 基线 8 槽位 → 中文名（与 baseline.CheckLabels 同表；
+// report 包不 import baseline（避免反向依赖面扩大），键名字面量由本测试钉住）。
+var baselineSectionKeys = []struct{ key, label string }{
+	{"secheaders", "安全响应头"},
+	{"webfiles", "网站文件"},
+	{"mailsec", "邮件安全"},
+	{"archives", "历史归档"},
+	{"sslchain", "TLS 证书链"},
+	{"dnsrec", "DNS 记录"},
+	{"whois", "WHOIS 注册信息"},
+	{"geoasn", "IP 归属 / ASN"},
+}
+
+// baselineLevelZH 基线 level → 中文（§5.0 包络 level: ok|warn|fail|info）。
+func baselineLevelZH(level string) string {
+	switch level {
+	case "ok":
+		return "通过"
+	case "warn":
+		return "注意"
+	case "fail":
+		return "风险"
+	case "info":
+		return "信息"
+	}
+	return level
+}
+
+// renderBaselineSection 渲染「域名暴露面基线」章（§5.0）。
+func renderBaselineSection(a func(string), b map[string]any) {
+	present := 0
+	for _, sec := range baselineSectionKeys {
+		if m, ok := b[sec.key].(map[string]any); ok && len(m) > 0 {
+			present++
+		}
+	}
+	if present == 0 {
+		return
+	}
+	a("## 9. 域名暴露面基线\n")
+	a("> 8 项零凭据体检（recon-go baseline）；详细数据见各 `<检查>.json`，未运行的检查无文件不展示\n")
+	for _, sec := range baselineSectionKeys {
+		m, ok := b[sec.key].(map[string]any)
+		if !ok || len(m) == 0 {
+			continue
+		}
+		a(fmt.Sprintf("### %s（%s）\n", sec.label, sec.key))
+		if errMsg := strV(m["error"]); errMsg != "" {
+			// 失败态：error 非空（桌面失败态同源语义），如实记录不编造结论
+			a(fmt.Sprintf("- 执行失败：%s", errMsg))
+		} else {
+			concl, _ := m["conclusion"].(map[string]any)
+			a(fmt.Sprintf("- 结论（%s）：%s",
+				baselineLevelZH(strV(concl["level"])), strOrDash(concl["text"])))
+		}
+		risks, _ := m["risks"].([]any)
+		if len(risks) > 0 {
+			a("\n| 等级 | 风险 | 说明 |")
+			a("|---|---|---|")
+			for _, r := range risks {
+				rm, _ := r.(map[string]any)
+				detail := strV(rm["detail"])
+				if detail == "" {
+					detail = "—"
+				}
+				a(fmt.Sprintf("| %s | %s | %s |",
+					baselineLevelZH(strV(rm["level"])), strV(rm["title"]), detail))
+			}
+		}
+		a("")
+	}
 }
 
 // PackEvidence 把 out/evidence/ 打包成 zip，对齐 report.py:192-209：
