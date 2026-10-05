@@ -7,7 +7,7 @@ import (
 	"gioui.org/unit"
 )
 
-// pageDashboard 仪表盘：统计卡 + 最近任务表 + 白名单提示。
+// pageDashboard 仪表盘：统计卡 + 最近任务表。
 func (a *appUI) pageDashboard(gtx layout.Context) layout.Dimensions {
 	tasks := a.tasks
 	if tasks == nil {
@@ -45,24 +45,6 @@ func (a *appUI) pageDashboard(gtx layout.Context) layout.Dimensions {
 					func(gtx layout.Context, i int) []string {
 						return []string{rows[i].CreatedAt, rows[i].Target, rows[i].Module, rows[i].Status}
 					})
-			})
-		}),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return layout.Inset{Top: Sp5}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				return card(gtx, ColS2, R3, func(gtx layout.Context) layout.Dimensions {
-					return layout.Inset{Top: Sp3, Bottom: Sp3, Left: Sp4, Right: Sp4}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								return sectionLabel(a.th, "授权目标（白名单红线，名单外一律拒绝）").Layout(gtx)
-							}),
-							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								return layout.Inset{Top: Sp1}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-									return monoLabel(a.th, "xycovo.com   47.100.49.228   127.0.0.1:8799（本机 mock 靶站）", Fs12, ColTx2).Layout(gtx)
-								})
-							}),
-						)
-					})
-				})
 			})
 		}),
 	)

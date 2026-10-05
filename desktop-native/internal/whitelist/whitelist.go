@@ -1,26 +1,18 @@
-// Package whitelist 实现正点名单硬校验：名单外一切目标（含其他私网/环回端口）
-// 一律拒绝。名单是用户明示授权的资产红线，宁严勿松。
+// Package whitelist 实现目标串卫生校验与归一化：控制字符/协议/端口/路径穿越
+// 等格式问题一律拒绝；目标本身全部默认授权（用户裁定 2026-10-05），本包不再
+// 做任何名单成员判定。
 package whitelist
 
 import (
 	"errors"
-	"fmt"
 	"net"
 	"strings"
 )
 
-// Entries 授权白名单（host 或 host:port，小写）。
-// 127.0.0.1 仅放行 8799 端口（本机 mock 靶站 tests/mock_server.py）。
-var Entries = []string{
-	"xycovo.com",
-	"47.100.49.228",
-	"127.0.0.1:8799",
-}
+var errRejected = errors.New("目标格式不合法")
 
-var errRejected = errors.New("目标不在授权白名单")
-
-// Check 校验目标串（裸域名 / IP / host:port / http(s) URL），命中名单返回
-// 归一化的 host[:port]，否则返回错误。任何解析失败都按拒绝处理。
+// Check 校验目标串（裸域名 / IP / host:port / http(s) URL）的格式卫生并归一化，
+// 返回小写 host[:port] key。任何解析失败都按拒绝处理；目标本身全部默认授权。
 func Check(target string) (string, error) {
 	s := strings.TrimSpace(target)
 	if s == "" || len(s) > 200 {
@@ -77,8 +69,14 @@ func Check(target string) (string, error) {
 	host, port := s, ""
 	if h, p, err := net.SplitHostPort(s); err == nil {
 		host, port = h, p
-		if _, err := net.LookupPort("tcp", port); err != nil {
-			return "", errRejected // 非法端口
+		if strings.Contains(host, ":") {
+			return "", errRejected // IPv6 字面量暂不支持（格式口径，非授权限制）
+		}
+		if port != "" {
+			pn, lerr := net.LookupPort("tcp", port)
+			if lerr != nil || pn == 0 {
+				return "", errRejected // 非法端口或 0 端口（0 是保留值，不是可探测目标）
+			}
 		}
 	} else if strings.Count(s, ":") > 0 {
 		return "", errRejected // IPv6 字面量或畸形 host:port，一律拒绝
@@ -96,12 +94,7 @@ func Check(target string) (string, error) {
 	if port != "" {
 		key = host + ":" + port
 	}
-	for _, w := range Entries {
-		if w == key {
-			return key, nil
-		}
-	}
-	return "", fmt.Errorf("%w: %s", errRejected, key)
+	return key, nil
 }
 
 // isDomain 宽松域名格式校验：字母数字连字符标签，点分隔，无空标签。

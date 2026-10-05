@@ -1,9 +1,10 @@
 package engine
 
 // fix3_test.go — 终修轮回归：
-//   1. 引擎层纵深闸：名单外目标 / 畸形 id 在 Start 就地拒绝——不依赖
+//   1. 引擎层纵深闸：格式非法目标 / 畸形 id 在 Start 就地拒绝——不依赖
 //      调用方（session.CreateTask）先过闸，堵「未来新调用方直连 Start」
-//      的纵深缺口（审计 adv-low-1）
+//      的纵深缺口（审计 adv-low-1）。目标全部默认授权（用户裁定
+//      2026-10-05）：本闸只查格式卫生，不做名单判定
 //   2. 取值旗标挂尾在 Go 层收闸（P4：此前漏到 Python 侧 argparse 才失败）
 
 import (
@@ -19,9 +20,16 @@ func TestStartEngineLayerGate(t *testing.T) {
 	r.Command = func(name string, args ...string) *exec.Cmd {
 		return exec.Command("cmd", "/c", "exit", "/b", "0")
 	}
-	// 名单外目标：调用方闸被绕过也不能起步
-	if err := r.Start("ok1", "icp", "example.com", nil); err == nil || !strings.Contains(err.Error(), "白名单") {
-		t.Fatalf("名单外目标应在引擎层拒绝, 得 %v", err)
+	// 格式非法目标（控制字符/百分号穿越）：调用方闸被绕过也不能起步
+	if err := r.Start("ok1", "icp", "xycovo.com\nevil", nil); err == nil || !strings.Contains(err.Error(), "格式") {
+		t.Fatalf("控制字符目标应在引擎层拒绝, 得 %v", err)
+	}
+	if err := r.Start("ok2", "icp", "http://xycovo.com/..%2f..", nil); err == nil || !strings.Contains(err.Error(), "格式") {
+		t.Fatalf("百分号穿越目标应在引擎层拒绝, 得 %v", err)
+	}
+	// 任意格式合法目标默认授权：闸放行（后续解释器解析在测试环境走假路径）
+	if err := r.Start("ok3", "icp", "example.com", nil); err != nil {
+		t.Fatalf("格式合法的任意目标应放行, 得 %v", err)
 	}
 	// 畸形 id（会拼 progress/log 文件路径）：就地拒绝
 	if err := r.Start("../evil", "icp", "xycovo.com", nil); err == nil || !strings.Contains(err.Error(), "任务 ID") {
@@ -33,7 +41,7 @@ func TestStartEngineLayerGate(t *testing.T) {
 	if err := r.Start(strings.Repeat("a", 100), "icp", "xycovo.com", nil); err == nil {
 		t.Fatal("超长 id 应拒绝")
 	}
-	// 闸内放行：正常 id + 名单内目标可起步
+	// 闸内放行：正常 id + 目标可起步
 	if err := r.Start("ok-1", "icp", "xycovo.com", nil); err != nil {
 		t.Fatalf("闸内 id+目标应放行: %v", err)
 	}

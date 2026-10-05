@@ -48,11 +48,6 @@ func (a *appUI) newTaskForm(gtx layout.Context) layout.Dimensions {
 				return inputWell(gtx, a.th, &a.targetEd, Fs14, "输入目标：域名 / IP / URL")
 			})
 		}),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return layout.Inset{Top: Sp1}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				return monoLabel(a.th, "白名单内才允许：xycovo.com / 47.100.49.228 / http://127.0.0.1:8799/real", Fs11, ColTx3).Layout(gtx)
-			})
-		}),
 		// 模块
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return layout.Inset{Top: Sp4}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {

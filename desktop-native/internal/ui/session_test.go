@@ -4,7 +4,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -33,19 +32,25 @@ func newTestSession(t *testing.T) *Session {
 	return s
 }
 
-func TestCreateTaskRejectsOffWhitelistTarget(t *testing.T) {
+func TestCreateTaskAcceptsArbitraryTarget(t *testing.T) {
+	// 目标全部默认授权（用户裁定 2026-10-05）：名单概念已移除，
+	// 任意格式合法的目标都应放行入库。
 	s := newTestSession(t)
 	id, err := s.CreateTask("evil.example.com", "paths", "")
-	if err == nil {
-		t.Fatal("白名单外目标应被拒绝")
+	if err != nil {
+		t.Fatalf("任意目标应默认授权放行，得错误: %v", err)
 	}
-	if !strings.Contains(err.Error(), "白名单") {
-		t.Fatalf("错误应说明白名单原因，得 %q", err.Error())
+	if id == "" {
+		t.Fatal("放行时应返回任务 ID")
 	}
-	if id != "" {
-		t.Fatalf("拒绝时不应返回任务 ID，得 %q", id)
+	if n := len(s.Store.List()); n != 1 {
+		t.Fatalf("任务应入库，得 %d 条", n)
 	}
-	if n := len(s.Store.List()); n != 0 {
+	// 格式卫生仍然生效：控制字符目标就地拒绝、不入库
+	if _, err := s.CreateTask("xycovo.com\nevil", "paths", ""); err == nil {
+		t.Fatal("含控制字符的目标应被拒绝")
+	}
+	if n := len(s.Store.List()); n != 1 {
 		t.Fatalf("拒绝的任务不应入库，得 %d 条", n)
 	}
 }
@@ -74,7 +79,7 @@ func TestCreateTaskNormalizesURLTarget(t *testing.T) {
 	s := newTestSession(t)
 	id, err := s.CreateTask("http://127.0.0.1:8799/real", "api", "")
 	if err != nil {
-		t.Fatalf("白名单内 URL 目标应放行: %v", err)
+		t.Fatalf("URL 目标应放行: %v", err)
 	}
 	got, ok := s.Store.Get(id)
 	if !ok {

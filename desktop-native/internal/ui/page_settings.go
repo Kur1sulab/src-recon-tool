@@ -6,11 +6,9 @@ import (
 
 	"gioui.org/layout"
 	"gioui.org/widget/material"
-
-	"recon-native/internal/whitelist"
 )
 
-// pageSettings 设置页：解释器自检 / 数据目录 / 白名单 / 关于。
+// pageSettings 设置页：解释器自检 / 数据目录 / 关于。
 func (a *appUI) pageSettings(gtx layout.Context) layout.Dimensions {
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -24,11 +22,6 @@ func (a *appUI) pageSettings(gtx layout.Context) layout.Dimensions {
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return layout.Inset{Top: Sp4}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				return a.outputCard(gtx)
-			})
-		}),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return layout.Inset{Top: Sp4}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				return a.whitelistCard(gtx)
 			})
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -135,40 +128,12 @@ func (a *appUI) outputCard(gtx layout.Context) layout.Dimensions {
 	})
 }
 
-// whitelistCard 白名单只读展示。
-func (a *appUI) whitelistCard(gtx layout.Context) layout.Dimensions {
-	return card(gtx, ColS2, R3, func(gtx layout.Context) layout.Dimensions {
-		gtx.Constraints.Min.X = gtx.Constraints.Max.X
-		return layout.Inset{Top: Sp3, Bottom: Sp3, Left: Sp4, Right: Sp4}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return sectionLabel(a.th, "授权目标白名单（硬红线，名单外一律拒绝，不可在此修改）").Layout(gtx)
-				}),
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return layout.Inset{Top: Sp2}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						out := make([]layout.FlexChild, 0, len(whitelist.Entries))
-						for _, e := range whitelist.Entries {
-							e := e
-							out = append(out, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								return layout.Inset{Top: Sp1}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-									return monoLabel(a.th, e, Fs13, ColTx1).Layout(gtx)
-								})
-							}))
-						}
-						return layout.Flex{Axis: layout.Vertical}.Layout(gtx, out...)
-					})
-				}),
-			)
-		})
-	})
-}
-
 // aboutCard 关于。
 func (a *appUI) aboutCard(gtx layout.Context) layout.Dimensions {
 	lines := []string{
 		"信息收集工具 —— 专精信息收集的桌面工具：子域枚举 / 资产测绘 / 指纹识别 / 敏感路径 / API 面梳理。",
 		"纯本地运行：零 AI 功能、无对话组件、不调用任何联网模型、不上报任何遥测数据。",
-		"扫描目标只在授权白名单内放行；扫描引擎以子进程方式运行仓库自带的 Python 流水线。",
+		"扫描引擎以子进程方式运行仓库自带的 Python 流水线，目标本地输入、结果本地出数。",
 	}
 	return card(gtx, ColS2, R3, func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X

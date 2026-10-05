@@ -64,7 +64,7 @@ func (a *appUI) pageTools(gtx layout.Context) layout.Dimensions {
 					return layout.Inset{Top: Sp3, Bottom: Sp3, Left: Sp4, Right: Sp4}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 						return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								return sectionLabel(a.th, "本机 mock 靶站（白名单内授权目标）").Layout(gtx)
+								return sectionLabel(a.th, "本机 mock 靶站").Layout(gtx)
 							}),
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 								return layout.Inset{Top: Sp2}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {

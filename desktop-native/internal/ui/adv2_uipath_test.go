@@ -59,17 +59,11 @@ func TestAdv2CreateTaskMaliciousTargets(t *testing.T) {
 		{"DNS 下划线记录名", "_dmarc.xycovo.com", "subdomain"},
 		{"通配符域", "*.xycovo.com", "subdomain"},
 		{"全角句号", "xycovo。com", "subdomain"},
-		{"仿冒后缀", "xycovo.com.evil.com", "all"},
-		{"仿冒前缀", "exycovo.com", "all"},
-		// 环回 / 私网等价写法（归一化 key 不匹配名单即拒）
-		{"环回缩写", "127.1", "portscan"},
-		{"环回整数", "2130706433", "portscan"},
-		{"环回八进制", "0177.0.0.1", "portscan"},
-		{"环回十六进制+白名单端口", "0x7f.0.0.1:8799", "portscan"},
-		{"mock 错端口", "127.0.0.1:8798", "api"},
-		{"mock 端口补零", "127.0.0.1:08799", "api"},
+		// 目标全部默认授权（用户裁定 2026-10-05）：原「仿冒后缀/前缀、
+		// 环回与私网等价写法、mock 错端口」类用例属名单语义，已移入
+		// 下方 accept 表——格式合法即放行，去留由操作者判断。
+		// 裸 IPv6 字面量：host:port 解析口径外，维持拒绝（格式限制，非授权限制）。
 		{"环回 IPv6", "[::1]:8799", "api"},
-		{"裸 localhost", "localhost", "api"},
 		{"userinfo 欺骗", "http://127.0.0.1:8799@xycovo.com/", "api"},
 		{"反斜杠穿越", `xycovo.com\..\..\windows`, "all"},
 		{"百分号编码穿越", "http://127.0.0.1:8799/%2e%2e/", "api"},
@@ -97,8 +91,29 @@ func TestAdv2CreateTaskMaliciousTargets(t *testing.T) {
 			t.Fatalf("[%s] 拒绝时不应返回任务 ID", c.name)
 		}
 	}
-	if after := len(s.Store.List()); after != before {
-		t.Fatalf("全部拒绝后任务库不应新增，before=%d after=%d", before, after)
+	// 默认授权：格式合法的目标一律放行（含原名单语义的仿冒域/环回等价写法）。
+	accept := []struct {
+		name   string
+		target string
+		cmd    string
+	}{
+		{"仿冒后缀", "xycovo.com.evil.com", "all"},
+		{"仿冒前缀", "exycovo.com", "all"},
+		{"环回缩写", "127.1", "portscan"},
+		{"环回整数", "2130706433", "portscan"},
+		{"环回八进制", "0177.0.0.1", "portscan"},
+		{"环回十六进制带端口", "0x7f.0.0.1:8799", "portscan"},
+		{"mock 错端口", "127.0.0.1:8798", "api"},
+		{"mock 端口补零", "127.0.0.1:08799", "api"},
+		{"裸 localhost", "localhost", "api"},
+	}
+	for _, c := range accept {
+		if _, err := s.CreateTask(c.target, c.cmd, ""); err != nil {
+			t.Fatalf("[%s] 默认授权应放行 %q: %v", c.name, c.target, err)
+		}
+	}
+	if after := len(s.Store.List()); after != before+len(accept) {
+		t.Fatalf("任务库应只新增 accept 条数，before=%d after=%d", before, after)
 	}
 }
 

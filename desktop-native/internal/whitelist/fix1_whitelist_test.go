@@ -1,22 +1,17 @@
 package whitelist
 
-// fix1_whitelist_test.go — 对抗轮模糊表固化（fixesNeeded P3）：
-// 把对抗实测的 90+ 用例按类别沉淀为核心子集，防白名单回归。类别：
-// 仿冒域 / 内网段全写法（含整数与八进制、16 进制编码）/ 控制字符与 CRLF /
-// 超长 / userinfo 欺骗 / 协议欺骗 / 路径穿越（明文与百分号编码）/ 非 ASCII。
+// fix1_whitelist_test.go — 对抗轮模糊表固化（fixesNeeded P3），口径随
+// 2026-10-05 用户裁定更新：目标全部默认授权，本表只钉「格式卫生」——
+// 控制字符与 CRLF / 超长 / userinfo 欺骗 / 协议欺骗 / 路径穿越（明文与
+// 百分号编码）/ 非 ASCII / 畸形。原「内网段全写法、仿冒域」类条目属
+// 名单语义已随名单一起移除，不再拒绝。
 
 import "testing"
 
 func TestAdvWhitelistFuzzTable(t *testing.T) {
 	reject := []string{
-		// 仿冒域（后缀拼接 / 前缀拼接）
-		"xycovo.com.evil.com", "exycovo.com", "xycovo.com.evil.cn", "xycovo-com.com",
-		// 环回 / 私网 / 保留段的各种写法
-		"127.0.0.1", "127.0.0.1:80", "127.0.0.1:8798", "localhost", "localhost:8799",
-		"[::1]:8799", "::1", "0.0.0.0", "0177.0.0.1", "2130706433", "0x7f000001",
-		"127.1", "192.168.88.137", "10.0.0.1", "172.16.0.1", "169.254.169.254",
-		"198.18.0.1", "100.64.0.1", "224.0.0.1", "255.255.255.255",
-		"http://127.0.0.1:8799@xycovo.com/", // userinfo 欺骗（真实 host 是环回前的假象）
+		// userinfo 欺骗（@ 一律拒绝，真实 host 与展示不符）
+		"http://127.0.0.1:8799@xycovo.com/",
 		// 控制字符 / CRLF / 制表
 		"xycovo.com\nevil", "xycovo.com\revil", "xycovo.com\tevil", "xycovo.com\x00",
 		"xycovo.com\r\nX-Injected: 1", "xycovo.com\x1b", "xycovo.com\x7f",
@@ -34,7 +29,9 @@ func TestAdvWhitelistFuzzTable(t *testing.T) {
 		"ｘycovo.com", "xycovo.com／evil", "xycovo。com", "xycovo‮moc.ovcy",
 		// 畸形
 		"", " ", ".", "..", "...", "/", "\\", "xycovo.com:0", "xycovo.com:99999",
-		"xycovo.com:8799x", "xn--xycovo.com:", "xycovo.com:-1",
+		"xycovo.com:8799x", "xycovo.com:-1",
+		// 裸 IPv6 / 带端口 IPv6 字面量（host:port 解析口径外，维持既有拒绝）
+		"[::1]:8799", "::1",
 	}
 	for _, in := range reject {
 		if _, err := Check(in); err == nil {
@@ -54,9 +51,18 @@ func TestAdvWhitelistFuzzTable(t *testing.T) {
 		{"47.100.49.228", "47.100.49.228"},
 		{"127.0.0.1:8799", "127.0.0.1:8799"},
 		{"http://127.0.0.1:8799/real", "127.0.0.1:8799"},
-		// 已知等价归一（对抗记录 INFO）：尾冒号形态等价放行为名单内资产，
-		// 非绕过；显式拒绝属可选收紧，本轮不改行为，仅在此钉住现状。
+		// 仿冒域 / 陌生域：格式合法即放行（默认授权），去留由操作者判断
+		{"xycovo.com.evil.com", "xycovo.com.evil.com"},
+		{"example.com", "example.com"},
+		{"localhost", "localhost"},
+		{"192.168.88.137", "192.168.88.137"},
+		{"169.254.169.254", "169.254.169.254"},
+		// 已知等价归一（对抗记录 INFO）：尾冒号形态按无端口归一
 		{"xycovo.com:", "xycovo.com"},
+		{"xn--xycovo.com:", "xn--xycovo.com"},
+		// 带端口归一
+		{"10.0.0.5:8080", "10.0.0.5:8080"},
+		{"example.com:443", "example.com:443"},
 	}
 	for _, c := range accept {
 		got, err := Check(c.in)

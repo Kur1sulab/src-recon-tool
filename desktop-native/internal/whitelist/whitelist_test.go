@@ -2,7 +2,8 @@ package whitelist
 
 import "testing"
 
-// 表驱动：正点名单硬校验。名单外一切 host（含其他私网/环回端口）必须全部拒绝。
+// 表驱动：目标卫生校验与归一化。目标本身全部默认授权（用户裁定
+// 2026-10-05）——任何格式合法的域名/IP/URL 都放行；只有格式问题拒绝。
 func TestCheck(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -10,30 +11,27 @@ func TestCheck(t *testing.T) {
 		wantErr  bool
 		wantHost string
 	}{
-		// ── 名单内：域名 / IP / 本机 mock（必须带端口 8799）──
+		// ── 格式合法：全部放行（不再有名单成员判定）──
 		{"裸域名", "xycovo.com", false, "xycovo.com"},
 		{"域名大小写归一", "XYCOVO.com", false, "xycovo.com"},
 		{"域名带前后空格", "  xycovo.com  ", false, "xycovo.com"},
+		{"域名双尾点归一", "example.com..", false, "example.com"},
 		{"https 全 URL", "https://xycovo.com/", false, "xycovo.com"},
 		{"http 带路径", "http://xycovo.com/a/b?x=1", false, "xycovo.com"},
 		{"裸 IP", "47.100.49.228", false, "47.100.49.228"},
-		{"mock 带端口", "127.0.0.1:8799", false, "127.0.0.1:8799"},
-		{"mock 全 URL 带路径", "http://127.0.0.1:8799/real", false, "127.0.0.1:8799"},
-		{"mock https", "https://127.0.0.1:8799/jssite", false, "127.0.0.1:8799"},
+		{"本机带端口", "127.0.0.1:8799", false, "127.0.0.1:8799"},
+		{"本机 URL 带路径", "http://127.0.0.1:8799/real", false, "127.0.0.1:8799"},
+		{"任意公网域名", "example.com", false, "example.com"},
+		{"任意子域", "www.xycovo.com", false, "www.xycovo.com"},
+		{"任意公网 IP", "1.2.3.4", false, "1.2.3.4"},
+		{"localhost", "localhost", false, "localhost"},
+		{"其他私网", "192.168.88.130", false, "192.168.88.130"},
+		{"私网带端口", "10.0.0.5:8080", false, "10.0.0.5:8080"},
+		{"环回无端口", "127.0.0.1", false, "127.0.0.1"},
+		{"其他环回端口", "127.0.0.1:80", false, "127.0.0.1:80"},
+		{"十进制分段 IP 形态", "0177.0.0.1", false, "0177.0.0.1"},
 
-		// ── 名单外：一律拒绝 ──
-		{"其他环回端口", "127.0.0.1:80", true, ""},
-		{"环回无端口", "127.0.0.1", true, ""},
-		{"其他私网", "192.168.88.130", true, ""},
-		{"其他私网带端口", "10.0.0.5:8080", true, ""},
-		{"localhost", "localhost", true, ""},
-		{"子域不在名单", "www.xycovo.com", true, ""},
-		{"相似域名", "xycovo.com.evil.io", true, ""},
-		{"未知公网", "1.2.3.4", true, ""},
-		{"未知域名", "example.com", true, ""},
-		{"IPv6", "[::1]:8799", true, ""},
-
-		// ── 格式非法 ──
+		// ── 格式非法：一律拒绝 ──
 		{"空串", "", true, ""},
 		{"纯空格", "   ", true, ""},
 		{"目录穿越", "http://127.0.0.1:8799/../etc", true, ""},
@@ -48,6 +46,7 @@ func TestCheck(t *testing.T) {
 		{"百分号编码点穿越", "http://127.0.0.1:8799/.%2e/.%2e/", true, ""},
 		{"百分号编码点大写", "http://127.0.0.1:8799/%2E%2E/", true, ""},
 		{"百分号编码斜杠", "http://127.0.0.1:8799/real%2f..", true, ""},
+		{"裸 IPv6 字面量", "::1", true, ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -65,11 +64,5 @@ func TestCheck(t *testing.T) {
 				t.Fatalf("Check(%q) host = %q, 期望 %q", c.target, host, c.wantHost)
 			}
 		})
-	}
-}
-
-func TestEntries(t *testing.T) {
-	if len(Entries) != 3 {
-		t.Fatalf("名单应为 3 项（xycovo.com / 47.100.49.228 / 127.0.0.1:8799），实际 %d", len(Entries))
 	}
 }

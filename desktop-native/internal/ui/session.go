@@ -1,7 +1,7 @@
 // Package ui 桌面壳的界面与会话编排。会话层把「新建任务」按钮的语义
-// 收敛成一次 CreateTask 调用：模块白名单 → 正点名单硬校验 → 目标形态归一
-// → 可选参数白名单 → 入库 → 起扫描子进程，与 desktop-go 的 server 层
-// hCreate 同一套闸门顺序，白名单行为不变。
+// 收敛成一次 CreateTask 调用：模块校验 → 目标卫生校验 → 目标形态归一
+// → 可选参数校验 → 入库 → 起扫描子进程。目标全部默认授权（用户裁定
+// 2026-10-05），本层只做格式卫生，不做任何名单判定。
 package ui
 
 import (
@@ -84,12 +84,13 @@ func (s *Session) CreateTask(target, cmd, argsRaw string) (string, error) {
 	if !engine.CmdAllowed(cmd) {
 		return "", fmt.Errorf("不支持的模块: %s", cmd)
 	}
-	// 白名单闸：名单外一律拒绝（正点名单硬校验，行为与 desktop-go 完全一致）。
+	// 目标卫生校验：控制字符/协议/端口/路径穿越一律拒绝（格式问题），
+	// 目标本身全部默认授权（用户裁定 2026-10-05）。
 	// 归一化 key 必须接住并作为入库/执行目标（对抗 P3 卫生缺口）：
 	// 校验对象与执行对象一致——双尾点等「等价写法」不再以原始串进 argv。
 	key, err := whitelist.Check(target)
 	if err != nil {
-		return "", fmt.Errorf("目标不在授权白名单，已拒绝（允许: xycovo.com / 47.100.49.228 / 127.0.0.1:8799）")
+		return "", fmt.Errorf("目标格式不合法: %w", err)
 	}
 	normalized, err := normalizeTarget(cmd, key, target)
 	if err != nil {

@@ -17,53 +17,54 @@ import (
 	"gioui.org/widget/material"
 )
 
-// ── 「石板声呐 Slate Sonar」色板 ──
-// 逐值转译自 frontend/css/tokens.css（唯一颜色来源，深色为唯一规范主题）。
-// 硬边界（WCAG 实测红线，与 tokens.css 注释一致）：
+// ── 「浅色工程台 Light Bench」色板（用户裁定 2026-10-05 改浅色）──
+// 逐值转译自 design-proposals/C-tokens.css 的 [data-theme="light"] 覆盖块
+// （31 令牌，34 组 WCAG 硬门槛配对实测全过，见 C-dual-theme.md §9）。
+// 层级方向与深色相反：面板最亮（纸面白），骨架/画布/井位反向压灰；
+// 强调色取深青档保文字对比（主按钮悬停由变亮反转为加深）。
+// 硬边界（实测红线，两主题同口径）：
 //
-//	· Tx3 禁上 S4（4.06:1）——S4 井底文字至少 Tx2；
-//	· Idle 禁放 S3 井底（2.92:1，非文字 3:1 门槛）；
-//	· Idle 不作文字色（对 S2 仅 3.21:1）；
-//	· -lo 描边档只描边，禁作文字色。
+//	· Tx3 弱注禁上 S4 强井；
+//	· Idle 待命灰只作 LED / 描边，禁作文字色。
 var (
-	// 石板五级底（冷蓝相，纵深全靠阶差）
-	ColS0 = nrgba(0x0c1116) // 画布：应用最底 / 日志凹井
-	ColS1 = nrgba(0x101820) // 骨架：侧栏 / 顶栏 / 输入井
-	ColS2 = nrgba(0x151f28) // 面板：卡片标准底
-	ColS3 = nrgba(0x1b2732) // 交互井：行悬停 / 下拉悬停
-	ColS4 = nrgba(0x223040) // 强井：按钮悬停 / 选中井（文字至少 Tx2）
+	// 工程台五级底（纸面反转：面板最亮，井位压灰）
+	ColS0 = nrgba(0xeef1f4) // 画布：应用最底 / 日志凹井（比面板沉半档）
+	ColS1 = nrgba(0xe5eaef) // 骨架：侧栏 / 顶栏 / 输入井
+	ColS2 = nrgba(0xffffff) // 面板：卡片标准底（纸面白，最亮层）
+	ColS3 = nrgba(0xe4eaef) // 交互井：行悬停 / 下拉悬停
+	ColS4 = nrgba(0xd7dfe6) // 强井：按钮悬停 / 选中井
 
-	// 精密边框三阶（全部 1px 发丝线）
-	ColLn1 = nrgba(0x1e2b36) // 行分隔 / 面板内发丝线
-	ColLn2 = nrgba(0x273745) // 面板边 / 控件默认边
-	ColLn3 = nrgba(0x354857) // 悬停边 / 强调边 / idle 族成文例外边线
+	// 精密边框三阶（浅色下线条略实才可见）
+	ColLn1 = nrgba(0xdde4ea) // 行分隔 / 面板内发丝线
+	ColLn2 = nrgba(0xc7d2db) // 面板边 / 控件默认边
+	ColLn3 = nrgba(0xa9bac6) // 悬停边 / 强调边
 
-	// 文字三阶（冷蓝灰）
-	ColTx1 = nrgba(0xdee6ec) // 主文：正文 / 数据值
-	ColTx2 = nrgba(0x9aabb9) // 次文：标签 / 表头 / 提示
-	ColTx3 = nrgba(0x7a90a4) // 弱注：脚注（对 s0–s3 过 AA；禁上 s4）
+	// 文字三阶（冷蓝墨，对 s0–s3 全部 ≥4.5:1 实测）
+	ColTx1 = nrgba(0x1c2833) // 主文：正文 / 数据值（对面板 14.99:1）
+	ColTx2 = nrgba(0x46596a) // 次文：标签 / 表头 / 提示
+	ColTx3 = nrgba(0x52687a) // 弱注：脚注（不上 s4，实测 4.31 红线不变）
 
-	// 品牌青鹤（唯一强调色，绝不参与状态语义）
-	ColAcc    = nrgba(0x3cb8a8) // 焦点环 / 激活轨 / 主按钮底
-	ColAccHi  = nrgba(0x74d6c7) // 亮青：青底上的悬停 / 运行态字
-	ColAccLo  = nrgba(0x1d4a43) // 暗青：描边档
-	ColAccInk = nrgba(0x04201b) // 青上墨：主按钮文字
-	ColAccBg  = nrgba(0x102e2b) // 青淡底：选中井
+	// 品牌青鹤（唯一强调色，浅色取深青档保文字对比）
+	ColAcc    = nrgba(0x0d7668) // 深青：焦点环 / 激活轨 / 主按钮底（对面板 5.51:1）
+	ColAccHi  = nrgba(0x0a6357) // 强青：悬停加深档 / 运行态字（对面板 7.15:1）
+	ColAccLo  = nrgba(0x3e9488) // 中青：描边档（对面板 3.62:1）
+	ColAccInk = nrgba(0xffffff) // 青上字：主按钮文字（对青底 5.51:1）
+	ColAccBg  = nrgba(0xd9efeb) // 青淡底：选中井（主文对它 12.49:1）
 
-	// 状态色族（绿=完成 橙=警示 红=故障 灰=待命）
-	ColOk     = nrgba(0x63bd80)
-	ColOkLo   = nrgba(0x2a5c3c)
-	ColOkBg   = nrgba(0x15271d)
-	ColWarn   = nrgba(0xd9a353)
-	ColWarnLo = nrgba(0x6b5426)
-	ColWarnBg = nrgba(0x2a2216)
-	ColErr    = nrgba(0xe07b6c)
-	ColErrLo  = nrgba(0x6e3a33)
-	ColErrBg  = nrgba(0x2c1d1a)
-	ColIdle   = nrgba(0x5b6f82) // 只作 LED / 描边，禁作文字色
-	ColIdleBg = nrgba(0x131c24)
+	// 状态色族（绿=完成 橙=警示 红=故障 灰=待命；同一色相族的浅色文字档）
+	ColOk     = nrgba(0x17722f)
+	ColOkLo   = nrgba(0x85c396)
+	ColOkBg   = nrgba(0xeaf6ee)
+	ColWarn   = nrgba(0x8f5e00)
+	ColWarnLo = nrgba(0xd9b45c)
+	ColWarnBg = nrgba(0xfaf3df)
+	ColErr    = nrgba(0xc0362e)
+	ColErrLo  = nrgba(0xe6a49d)
+	ColErrBg  = nrgba(0xfdecea)
+	ColIdle   = nrgba(0x5b6f82) // 两主题同值：LED 对白面板 5.20:1，禁作文字色
+	ColIdleBg = nrgba(0xe3e9ee)
 
-	ColZebra = nrgba(0x121b23) // 斑马纹：比面板底沉半档
+	ColZebra = nrgba(0xf4f7f9) // 斑马纹：比白面板沉半档
 )
 
 // nrgba 0xRRGGBB → color.NRGBA（不透明）。
@@ -153,13 +154,13 @@ func loadFaces() (faces []font.FontFace, hasMono bool) {
 	return faces, hasMono
 }
 
-// Theme 石板声呐主题：material 主题 + 等宽字体可用性。
+// Theme 浅色工程台主题：material 主题 + 等宽字体可用性。
 type Theme struct {
 	*material.Theme
 	HasMono bool
 }
 
-// NewTheme 构建深色主题：雅黑注册、石板色板、13sp 正文基准。
+// NewTheme 构建浅色主题：雅黑注册、工程台色板、13sp 正文基准。
 func NewTheme() *Theme {
 	faces, hasMono := loadFaces()
 	th := material.NewTheme()

@@ -195,11 +195,12 @@ var taskIDRe = regexp.MustCompile(`^[0-9A-Za-z]([0-9A-Za-z._-]{0,78}[0-9A-Za-z])
 // Start 起一个扫描进程并挂上监视 goroutine。成功后任务状态置 running。
 func (r *Runner) Start(id, cmd, target string, extra []string) error {
 	// 引擎层纵深闸（终修轮，审计 adv-low-1）：正常流程里调用方
-	// （session.CreateTask）已过白名单闸与参数闸，但本层不信任该前提——
-	// 未来任何新调用方直连 Start，也不至于把名单外目标送进扫描、把
-	// 畸形 id 拼进 progress/log 文件路径。
+	// （session.CreateTask）已过目标格式校验与参数闸，但本层不信任该前提——
+	// 未来任何新调用方直连 Start，也不至于把格式非法的目标送进扫描、把
+	// 畸形 id 拼进 progress/log 文件路径。目标本身全部默认授权（用户裁定
+	// 2026-10-05），本闸只做格式卫生。
 	if _, err := whitelist.Check(target); err != nil {
-		return fmt.Errorf("目标未通过白名单校验: %w", err)
+		return fmt.Errorf("目标格式校验未通过: %w", err)
 	}
 	if !taskIDRe.MatchString(id) {
 		return fmt.Errorf("任务 ID 含不允许的字符: %q", id)
