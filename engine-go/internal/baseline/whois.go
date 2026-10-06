@@ -20,8 +20,8 @@ import (
 
 // RDAPBase / TrancoBase 免 key 公开源（可注入换靶）。
 var (
-	RDAPBase    = "https://rdap.org/domain/"
-	TrancoBase  = "https://tranco-list.eu/api/ranks/domain/"
+	RDAPBase   = "https://rdap.org/domain/"
+	TrancoBase = "https://tranco-list.eu/api/ranks/domain/"
 )
 
 // rdapFetch 可注入（单测打桩）；生产走 netutil.Fetch（跟随 302）。
@@ -197,13 +197,41 @@ func parseWhoisText(text string) whoisText {
 var reReferral = regexp.MustCompile(`(?im)^\s*(?:refer|referralserver|registrar whois server)[:：]\s*(\S+)\s*$`)
 
 // extractReferral 抽 43 文本里的下一跳 WHOIS 服务器（IANA refer / 注册局
-// Registrar WHOIS Server / ReferralServer；剥 whois:// 前缀）。
+// Registrar WHOIS Server / ReferralServer；剥 whois:// 前缀）。经
+// referralHostOK 形状闸——不合格返回 ""（referral 循环终止）。
 func extractReferral(text string) string {
 	m := reReferral.FindStringSubmatch(text)
 	if m == nil {
 		return ""
 	}
-	return strings.TrimPrefix(strings.TrimPrefix(strings.TrimSpace(m[1]), "whois://"), "http://")
+	next := strings.TrimPrefix(strings.TrimPrefix(strings.TrimSpace(m[1]), "whois://"), "http://")
+	if !referralHostOK(next) {
+		return ""
+	}
+	return next
+}
+
+// referralHostOK referral 下一跳主机形状闸（终修轮 F3·审计）：43 端口回退链
+// 的下一跳取自上一跳响应文本，恶意注册局/注册商文本可驱使工具向任意主机:43
+// 拨号——至少锁死主机形状：仅域名字符集（字母/数字/点/连字符）、1-253 长度、
+// 不以点/连字符开头结尾、至少含一个点（剥 scheme/端口/路径后残留即拒）。
+func referralHostOK(h string) bool {
+	if h == "" || len(h) > 253 {
+		return false
+	}
+	for i := 0; i < len(h); i++ {
+		c := h[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9', c == '.', c == '-':
+		default:
+			return false
+		}
+	}
+	if strings.HasPrefix(h, "-") || strings.HasSuffix(h, "-") ||
+		strings.HasPrefix(h, ".") || strings.HasSuffix(h, ".") {
+		return false
+	}
+	return strings.Contains(h, ".")
 }
 
 // whoisMaxHops referral 链上限（IANA→注册局→注册商 = 2 跳，共 3 查询）。

@@ -1,5 +1,5 @@
 // secheaders.go — 安全响应头检查（报告 §5.1）：8 条安全头规则表驱动判定
-//（HSTS 阈值 10886400 = webcheck hsts.js MIN_MAX_AGE preload 最低线）、
+// （HSTS 阈值 10886400 = webcheck hsts.js MIN_MAX_AGE preload 最低线）、
 // Cookie 属性审计（Secure/HttpOnly/SameSite 任一缺失记不安全项）、
 // WAF 特征表（firewall.js 三元组 header/子串/厂商 翻译 + 3 条国产占位）、
 // 手动逐跳重定向链（上限 5 跳，落点过 HopPolicy——公网入口的 302 落私网拒绝）。
@@ -143,9 +143,20 @@ func judgeHeaders(h http.Header) []secHeaderRow {
 			continue
 		}
 		state, note := r.Judge(v)
-		rows = append(rows, secHeaderRow{Name: r.Name, State: state, Note: note})
+		// 资源放大加固（终修轮）：note 里的头值截断——对抗轮实测 ≤1MB 头值
+		// 全量复制进 note 致产物 2 倍放大（判定语义用原值，仅产物瘦身）。
+		rows = append(rows, secHeaderRow{Name: r.Name, State: state, Note: clipText(note, 4096)})
 	}
 	return rows
+}
+
+// clipText 产物注记截断（字节级，UTF-8 劈尾巴时 json 序列化仍安全——
+// 无效尾字节按 invalid rune 编码，解码端替换处理）。
+func clipText(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + fmt.Sprintf("…（截断，原长 %d 字节）", len(s))
 }
 
 // secCookieRow 单条 Cookie 审计行。
@@ -342,6 +353,15 @@ func RunSecHeaders(o Options) Result {
 	}
 	res.Data["hops"] = hops
 
+	// F2（终修轮）：blocked-hop 风险收集提前到 finalHeader==nil 早退之前——
+	// 被拦 hop 必 break → finalHeader 恒 nil → 此前尾部风险循环是死代码，
+	// 用户只见笼统「响应链未走通」，看不到「落点被边界校验拒绝」这一真实风险。
+	for _, hp := range hops {
+		if hp.Blocked {
+			res.Risks = append(res.Risks, Risk{Level: LevelWarn, Title: "重定向落点被边界校验拒绝", Detail: hp.URL + " → " + hp.Location})
+		}
+	}
+
 	if finalHeader == nil {
 		res.Error = "未能取得终响应（重定向链中断/被拒/连接失败），详见 hops"
 		res.Conclusion = Conclusion{Level: LevelFail, Text: "响应链未走通"}
@@ -372,11 +392,6 @@ func RunSecHeaders(o Options) Result {
 	}
 	for _, v := range wafVendors {
 		res.Risks = append(res.Risks, Risk{Level: LevelInfo, Title: "疑似 WAF/CDN：" + v, Detail: "指纹特征命中，不代表防护有效"})
-	}
-	for _, hp := range hops {
-		if hp.Blocked {
-			res.Risks = append(res.Risks, Risk{Level: LevelWarn, Title: "重定向落点被边界校验拒绝", Detail: hp.URL + " → " + hp.Location})
-		}
 	}
 
 	switch {

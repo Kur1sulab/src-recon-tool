@@ -1,9 +1,9 @@
 // dnsrec.go — DNS 记录检查（报告 §5.6）：标准库直出 8 类
-//（A/AAAA/CNAME/MX/NS/TXT/SRV/PTR），worker 8、单查询 3s；SOA/CAA/DS/DNSKEY
+// （A/AAAA/CNAME/MX/NS/TXT/SRV/PTR），worker 8、单查询 3s；SOA/CAA/DS/DNSKEY
 // 走 DoH JSON API（dns.google/resolve 免 key，--doh 默认关，方案 a——
 // go doc net.Resolver 无 LookupSOA/CAA/DS/DNSKEY，2026-10-05 实证；
 // 不引 miekg/dns，go.mod 零新增 require）；与 verify 已解析 A 记录去重
-//（Options.KnownA 传入即复用，不重复查询）。
+// （Options.KnownA 传入即复用，不重复查询）。
 package baseline
 
 import (
@@ -54,8 +54,14 @@ func dohQuery(name string, typ int) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	if st, ok := m["Status"].(float64); ok && int(st) != 0 {
-		return nil, fmt.Errorf("DoH Status=%d", int(st))
+	// F5（终修轮）：Status 在场但非数值按查询失败处理——此前类型断言失败
+	// 被静默跳过，敌意 DoH 源可以字符串 Status（"SERVFAIL"）逃过 DNSSEC
+	// 判定、投喂伪造 DS/DNSKEY 触发「疑似启用 DNSSEC」误报。
+	if raw, ok := m["Status"]; ok {
+		st, isNum := raw.(float64)
+		if !isNum || int(st) != 0 {
+			return nil, fmt.Errorf("DoH Status 异常: %v", raw)
+		}
 	}
 	answers, _ := m["Answer"].([]any)
 	out := []string{}
@@ -186,7 +192,7 @@ func RunDNSRec(o Options) Result {
 	)
 	for _, s := range srvProbeList {
 		svc, proto := s.Service, s.Proto
-		jobs = append(jobs, dnsJob{"srv:"+svc+"."+proto, func() (any, error) {
+		jobs = append(jobs, dnsJob{"srv:" + svc + "." + proto, func() (any, error) {
 			return qDNS(func(ctx context.Context) (any, error) {
 				canon, recs, err := dns.LookupSRV(ctx, svc, proto, d)
 				return srvResult{Canon: canon, Recs: recs}, err
@@ -263,7 +269,7 @@ func RunDNSRec(o Options) Result {
 			break
 		}
 		ip := ip
-		ptrJobs = append(ptrJobs, dnsJob{"ptr|"+ip, func() (any, error) {
+		ptrJobs = append(ptrJobs, dnsJob{"ptr|" + ip, func() (any, error) {
 			return qDNS(func(ctx context.Context) ([]string, error) { return dns.LookupAddr(ctx, ip) })
 		}})
 	}

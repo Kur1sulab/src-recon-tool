@@ -2,7 +2,7 @@
 // 非空 Disallow 回喂 paths_extra.txt）、sitemap.xml（encoding/xml 解析 <loc>，
 // 解析前逐 token 拒 DOCTYPE/ENTITY——不可信 XML 双保险）、
 // .well-known/security.txt 字段抽取、首页 og meta/<title>/<a href> 域名归类
-//（同站 / 子域候选 / 外链；子域候选回喂 subdomain 候选集）。
+// （同站 / 子域候选 / 外链；子域候选回喂 subdomain 候选集）。
 // 全程只 GET 目标站自身，零第三方外联。
 package baseline
 
@@ -13,9 +13,20 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/Kur1sulab/src-recon-tool/engine-go/internal/netutil"
 )
+
+// robotsMaxSitemaps robots.txt Sitemap 行收集封顶；sitemapFetchBudget 源抓取
+// 总时间软预算（< 检查级 60s 护栏，到点停发新请求）；sitemapMaxLocsPerSource
+// 单源 loc 收录封顶（终修轮 F2/资源放大加固）。
+const (
+	robotsMaxSitemaps       = 10
+	sitemapMaxLocsPerSource = 500
+)
+
+var sitemapFetchBudget = 40 * time.Second
 
 var (
 	reHTMLTitle = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
@@ -26,6 +37,8 @@ var (
 )
 
 // parseRobots 逐行抽 User-agent 段的 Disallow/Allow 与任意位置的 Sitemap 行。
+// Sitemap 行收集封顶 robotsMaxSitemaps（终修轮 F2：源数量无上限时 500 断点
+// 永不触发——失败源不推进 sitemapURLs，12s/源串行可被敌意 robots 拉到小时级）。
 func parseRobots(text string) (disallow, allow, sitemaps []string) {
 	disallow, allow, sitemaps = []string{}, []string{}, []string{}
 	for _, line := range strings.Split(text, "\n") {
@@ -49,7 +62,7 @@ func parseRobots(text string) (disallow, allow, sitemaps []string) {
 				allow = append(allow, val)
 			}
 		case "sitemap":
-			if val != "" {
+			if val != "" && len(sitemaps) < robotsMaxSitemaps {
 				sitemaps = append(sitemaps, val)
 			}
 		}
@@ -99,7 +112,7 @@ func parseSitemap(xmlText string) ([]string, error) {
 }
 
 // parseSecurityTxt 抽 Contact/Encryption/Policy/Preferred-Languages 字段
-//（键小写；# 注释行跳过）。
+// （键小写；# 注释行跳过）。
 func parseSecurityTxt(text string) map[string]string {
 	fields := map[string]string{}
 	for _, line := range strings.Split(text, "\n") {
@@ -201,7 +214,7 @@ func RunWebfiles(o Options) Result {
 	}
 	res.URL = entry
 	base := strings.TrimRight(entry, "/")
-	hop := netutil.HopPolicy(entry)
+	hop := hopPolicyFor(entry) // 可注入逐跳策略（与 secheaders 同一包级注入点；F1 首跳同权复用）
 	get := func(u string) netutil.Result {
 		return netutil.Fetch(u, netutil.FetchOpt{Timeout: defHTTPTimeout, Follow: true, HopCheck: hop})
 	}
@@ -222,8 +235,25 @@ func RunWebfiles(o Options) Result {
 	}
 	sitemapURLs := []string{}
 	sitemapNotes := []string{}
+	budgetStart := time.Now()
 	for _, src := range sitemapSources {
 		if len(sitemapURLs) > 500 {
+			break
+		}
+		// F1（终修轮·high）：robots Sitemap 行是目标站可控的外部数据，首跳
+		// 与重定向腿同权过边界闸——被拒源记 notes+risks，绝不发请求。文件头
+		// 「零第三方外联」不变式由此恢复（此前恶意 robots 可驱动 GET 云元数据
+		// /内网段并把响应回流进产物）。
+		if herr := hop(src); herr != nil {
+			sitemapNotes = append(sitemapNotes, fmt.Sprintf("%s → 边界校验拒绝：%v", src, herr))
+			res.Risks = append(res.Risks, Risk{Level: LevelWarn, Title: "sitemap 源被边界校验拒绝", Detail: fmt.Sprintf("%s → %v", src, herr)})
+			continue
+		}
+		// F2（终修轮·medium）：时间软预算到点停发新请求——60s 检查级护栏超时
+		// 只是丢弃结果，检查 goroutine 无法强杀，源无界时被弃 goroutine 会继续
+		// 对外发包。预算 < 护栏，护栏触发前已自停。
+		if time.Since(budgetStart) > sitemapFetchBudget {
+			sitemapNotes = append(sitemapNotes, "源抓取时间预算耗尽，剩余源跳过")
 			break
 		}
 		r := get(src)
@@ -236,6 +266,11 @@ func RunWebfiles(o Options) Result {
 			sitemapNotes = append(sitemapNotes, fmt.Sprintf("%s → %v", src, err))
 			res.Risks = append(res.Risks, Risk{Level: LevelWarn, Title: "sitemap 拒绝解析", Detail: err.Error()})
 			continue
+		}
+		// 资源放大加固：单源 loc 收录封顶（百万 loc 全量进包络无意义且放大产物）。
+		if len(locs) > sitemapMaxLocsPerSource {
+			sitemapNotes = append(sitemapNotes, fmt.Sprintf("%s → 单源 loc 超限截断（%d→%d）", src, len(locs), sitemapMaxLocsPerSource))
+			locs = locs[:sitemapMaxLocsPerSource]
 		}
 		sitemapURLs = append(sitemapURLs, locs...)
 	}

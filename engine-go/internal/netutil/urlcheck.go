@@ -2,6 +2,7 @@ package netutil
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -66,12 +67,24 @@ func ipBlocked(a netip.Addr) bool {
 	return false
 }
 
+// PrivateAddrError 私网/保留地址阻断哨兵（终修轮 F4）：HopPolicy 需要区分
+// 「入口解析到私网」与其他失败成因（DNS 瞬时失败/非法 URL）——此前全部折算
+// 成放行信号，公网目标的重定向可在解析抖动窗口落私网。errors.As 可判。
+type PrivateAddrError struct {
+	Host string
+	IP   string
+}
+
+func (e *PrivateAddrError) Error() string {
+	return fmt.Sprintf("目标 %s 解析到内网/保留地址 %s，已阻断（授权内网目标请显式 allow_private=True）", e.Host, e.IP)
+}
+
 // CheckHTTPURL 请求前 URL 边界校验（SSRF 纪律），对齐 netutil.py:77-111：
 //  1. 只放行 http/https 且必须有主机；
 //  2. 解析主机并检查 IP 边界，默认阻断私网/环回/链路本地/保留地址；
 //     allowPrivate=true 显式放行（授权内网/本机靶标是合法目标）。
 //
-// 校验通过原样返回 URL；非法或越界返回 error。
+// 校验通过原样返回 URL；非法或越界返回 error（私网阻断为 *PrivateAddrError）。
 func CheckHTTPURL(rawURL string, allowPrivate bool) (string, error) {
 	u := strings.TrimSpace(rawURL)
 	p, err := url.Parse(u)
@@ -112,8 +125,7 @@ func CheckHTTPURL(rawURL string, allowPrivate bool) (string, error) {
 				ap = ap.Unmap()
 			}
 			if ipBlocked(ap) {
-				return "", fmt.Errorf("目标 %s 解析到内网/保留地址 %s，已阻断（授权内网目标请显式 allow_private=True）",
-					host, a.IP.String())
+				return "", &PrivateAddrError{Host: host, IP: a.IP.String()}
 			}
 		}
 	}
@@ -124,14 +136,19 @@ func CheckHTTPURL(rawURL string, allowPrivate bool) (string, error) {
 //   - 入口是公网可解析目标（CheckHTTPURL 默认边界校验通过）→ 逐跳拒绝
 //     内网/环回/保留/链路本地落点——堵「授权公网目标的 302 把探测流量
 //     （可能含凭据 query）打进未授权内网段/云元数据地址」；
-//   - 入口本身私网/环回（授权内网靶标，本工具的合法场景）或无法解析 →
-//     逐跳只做协议白名单 + 可解析性校验，私网落点放行——与
+//   - 入口本身私网/环回（授权内网靶标，本工具的合法场景，*PrivateAddrError
+//     可判）→ 逐跳只做协议白名单 + 可解析性校验，私网落点放行——与
 //     fingerprint/PickBase 现行 allowPrivate=true 语义一致。
+//
+// 终修轮 F4（审计 low）：allowPrivate 的推断从「入口重查报错即放行」收紧为
+// 「errors.As 判定私网阻断哨兵」——此前 DNS 解析瞬时失败/非法 URL 等全部
+// 失败成因都被折算成放行信号，公网目标的重定向可在解析抖动窗口落私网。
 //
 // 注意：本回调只约束重定向落点，入口自身的边界策略由调用方决定。
 func HopPolicy(entryURL string) func(string) error {
 	_, entryErr := CheckHTTPURL(entryURL, false)
-	allowPrivate := entryErr != nil
+	var pe *PrivateAddrError
+	allowPrivate := errors.As(entryErr, &pe)
 	return func(next string) error {
 		_, err := CheckHTTPURL(next, allowPrivate)
 		return err

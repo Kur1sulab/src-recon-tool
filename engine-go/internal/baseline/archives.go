@@ -1,6 +1,6 @@
 // archives.go — 历史归档检查（报告 §5.4）：Wayback CDX 接口分页拉取
-//（showNumPages → 逐页，5 万行上限 + 总超时 + 3 次退避重试）、URL 规范化去重
-//（小写 host、去 fragment）、敏感分流（扩展名 + 路径关键词 → 高危清单）、
+// （showNumPages → 逐页，5 万行上限 + 总超时 + 3 次退避重试）、URL 规范化去重
+// （小写 host、去 fragment）、敏感分流（扩展名 + 路径关键词 → 高危清单）、
 // 高危清单与 paths 字典交叉标注（dup/new，只出清单不自动探测）。
 // CDX 是免 key 公开源（模块本体默认开，§5.0 分界）；cdxFetch 可注入离线单测。
 package baseline
@@ -34,10 +34,10 @@ var cdxFetch = func(rawURL string, timeout time.Duration) (string, error) {
 var retrySleepCDX = time.Sleep
 
 const (
-	cdxMaxLines  = 50000  // 行数上限（FinalRecon 5 万条经验，§5.4）
-	cdxMaxPages  = 100    // 分页数上限（防超大站拖爆总预算）
-	cdxTimeout   = 30 * time.Second
-	cdxRetries   = 3
+	cdxMaxLines = 50000 // 行数上限（FinalRecon 5 万条经验，§5.4）
+	cdxMaxPages = 100   // 分页数上限（防超大站拖爆总预算）
+	cdxTimeout  = 30 * time.Second
+	cdxRetries  = 3
 )
 
 // cdxRow CDX 行（fl=original,timestamp,mimetype,statuscode）。
@@ -68,14 +68,19 @@ func parseCDXLine(line string) (cdxRow, bool) {
 }
 
 // normalizeCDXURL URL 规范化（§5.4）：scheme+host 小写、去 fragment、去尾斜杠。
+// F4（终修轮）：最终 scheme ∉ {http,https} 返回 ""（调用方跳过）——敌意
+// CDX 数据源的 javascript: 等行不进 rows/产物（无执行面，纯数据卫生）。
 func normalizeCDXURL(raw string) string {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil {
-		return strings.ToLower(raw)
+		return ""
 	}
 	u.Fragment = ""
 	u.Scheme = strings.ToLower(u.Scheme)
 	u.Host = strings.ToLower(u.Host)
+	if u.Scheme != "" && u.Scheme != "http" && u.Scheme != "https" {
+		return ""
+	}
 	if u.Host == "" {
 		return strings.ToLower(u.String())
 	}
@@ -240,7 +245,7 @@ func RunArchives(o Options) Result {
 	}
 	if len(high) > 0 {
 		res.Risks = append(res.Risks, Risk{Level: LevelWarn,
-			Title: fmt.Sprintf("历史快照发现 %d 条高危 URL（.bak/.sql/admin 等）", len(high)),
+			Title:  fmt.Sprintf("历史快照发现 %d 条高危 URL（.bak/.sql/admin 等）", len(high)),
 			Detail: "清单见 archives_high.txt；与 paths 字典交叉标注 dup/new，只出清单不自动探测"})
 	}
 	if truncated {
