@@ -42,19 +42,26 @@ func goEngineMissingHint() string {
 // whitelist.Check → normalizeTarget 链，页面读取产物用的目录键与任务执行
 // 目标一致）。输入为空/格式非法返回 ""（页面维持空态，不猜）。
 func (a *appUI) normalizedBaselineTarget() string {
+	key, _ := a.baselineTargetKey()
+	return key
+}
+
+// baselineTargetKey 归一化键 + 非法原因（输入非空但格式非法时 reason 非空，
+// 输入井下方即时提示——此前静默退回空态引导卡，要等点按钮才见红条）。
+func (a *appUI) baselineTargetKey() (key, reason string) {
 	raw := strings.TrimSpace(a.baseTargetEd.Text())
 	if raw == "" {
-		return ""
+		return "", ""
 	}
-	key, err := whitelist.Check(raw)
+	k, err := whitelist.Check(raw)
 	if err != nil {
-		return ""
+		return "", "目标格式：应为域名（不含协议和端口）"
 	}
-	n, err := normalizeTarget("baseline", key, raw)
+	n, err := normalizeTarget("baseline", k, raw)
 	if err != nil {
-		return ""
+		return "", "目标格式：应为域名（不含协议和端口）"
 	}
-	return n
+	return n, ""
 }
 
 // baseTaskRunning 当前目标的最新基线任务是否在跑（queued/running 相位判定）。
@@ -77,7 +84,7 @@ func (a *appUI) pollBaseline() {
 	raw := strings.TrimSpace(a.baseTargetEd.Text())
 	if raw != a.baseLastInput {
 		a.baseLastInput = raw
-		a.baseErr, a.baseOK = "", ""
+		a.baseErr, a.baseOK, a.baseTerm, a.baseTermID = "", "", "", ""
 	}
 	key := a.normalizedBaselineTarget()
 	if key == "" {
@@ -108,6 +115,25 @@ func (a *appUI) pollBaseline() {
 	a.baseStatus = best.Status
 	if a.baseTaskRunning() {
 		a.baseStates = LoadBaselineProducts(a.sess.RepoRoot, key)
+		return
+	}
+	// 任务终态呈现：引擎秒退（recon-go.exe 损坏等）或被 Esc 停止时，8 张卡
+	// 全停在「未运行」，页面此前无任何反馈、「已开始」横条常驻误导——
+	// 终态横条写一次（按任务 id 去重，400ms 节拍不重刷），并清掉「已开始」。
+	if a.baseOK != "" {
+		a.baseOK = ""
+	}
+	switch best.Status {
+	case store.StatusFail:
+		if a.baseTermID != best.ID {
+			a.baseTermID = best.ID
+			a.baseTerm = "基线检查失败——去结果页看该任务的过程记录"
+		}
+	case store.StatusStopped:
+		if a.baseTermID != best.ID {
+			a.baseTermID = best.ID
+			a.baseTerm = "基线检查已停止——去结果页看该任务的过程记录"
+		}
 	}
 }
 
@@ -160,7 +186,7 @@ func (a *appUI) pageBaseline(gtx layout.Context) layout.Dimensions {
 	)
 }
 
-// baselineInputCard 目标输入 + 一键跑 + 错误/成功横条 + 引擎缺失指引。
+// baselineInputCard 目标输入 + 一键跑 + 错误/成功/终态横条 + 引擎缺失指引。
 func (a *appUI) baselineInputCard(gtx layout.Context) layout.Dimensions {
 	rows := []layout.FlexChild{
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -171,10 +197,18 @@ func (a *appUI) baselineInputCard(gtx layout.Context) layout.Dimensions {
 				return inputWell(gtx, a.th, &a.baseTargetEd, Fs14, "输入目标域名")
 			})
 		}),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return layout.Inset{Top: Sp3}.Layout(gtx, a.baselineRunButton)
-		}),
 	}
+	// 输入非空但格式非法：井下即时提示原因（此前静默退回空态，要等点按钮才见红条）
+	if key, reason := a.baselineTargetKey(); key == "" && reason != "" {
+		rows = append(rows, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return layout.Inset{Top: Sp1}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return label(a.th, reason, Fs11, ColTx3).Layout(gtx)
+			})
+		}))
+	}
+	rows = append(rows, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+		return layout.Inset{Top: Sp3}.Layout(gtx, a.baselineRunButton)
+	}))
 	if _, err := a.sess.Runner.ResolveGoEngine(); err != nil {
 		rows = append(rows, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return layout.Inset{Top: Sp2}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -196,6 +230,17 @@ func (a *appUI) baselineInputCard(gtx layout.Context) layout.Dimensions {
 			})
 		}))
 	}
+	if a.baseTerm != "" {
+		rows = append(rows, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return layout.Inset{Top: Sp2}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				// 失败红 / 停止橙：终态横条（任务失败或被停后页面唯一的显性反馈）
+				if strings.Contains(a.baseTerm, "失败") {
+					return errBanner(gtx, a.th, a.baseTerm)
+				}
+				return banner(gtx, a.th, a.baseTerm, ColWarnBg, ColWarn)
+			})
+		}))
+	}
 	if a.baseTarget != "" && a.baseRunID == "" {
 		rows = append(rows, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return layout.Inset{Top: Sp2}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -211,12 +256,14 @@ func (a *appUI) baselineInputCard(gtx layout.Context) layout.Dimensions {
 	})
 }
 
-// baselineRunButton 一键跑按钮（运行中灰显拒重复提交）。
+// baselineRunButton 一键跑按钮（运行中真禁用：Disabled 上下文不投递事件 +
+// update 层 running 守卫双保险，material 自动灰化混色，点击无按压反馈）。
 func (a *appUI) baselineRunButton(gtx layout.Context) layout.Dimensions {
 	running := a.baseTaskRunning()
 	txt, bg, fg := "一键跑全部检查", ColAcc, ColAccInk
 	if running {
 		txt, bg, fg = "检查进行中…", ColS1, ColTx3
+		gtx = gtx.Disabled()
 	}
 	btn := material.Button(a.th.Theme, &a.baseRunBtn, txt)
 	btn.Background = bg
@@ -261,7 +308,7 @@ func baselineStrip(bg colorNRGBA) layout.FlexChild {
 // baselineCardBody 卡片内容行集（状态行 + 各条件块）。
 func (a *appUI) baselineCardBody(st BaselineCheckState, phase string, fg colorNRGBA) []layout.FlexChild {
 	rows := []layout.FlexChild{a.baselineCardHeader(st, phase, fg)}
-	inset := layout.Inset{Top: Sp2, Left: unit.Dp(14)}
+	inset := layout.Inset{Top: Sp2, Left: Sp3} // 内容缩进回归 4 的倍数间距律（曾 14dp 魔法数）
 	switch phase {
 	case "conclusion":
 		rows = append(rows,
@@ -323,7 +370,7 @@ func (a *appUI) baselineCardHeader(st BaselineCheckState, phase string, fg color
 		header := layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}
 		return header.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return baselineLED(gtx, phase)
+				return baselineLED(gtx, phase, st.Res.ConclusionLevel)
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				return layout.Inset{Left: Sp2}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -359,7 +406,8 @@ func (a *appUI) baselineJSONToggle(gtx layout.Context, key string) layout.Dimens
 		txt = "原始 JSON ▾"
 	}
 	c := a.baseJSONClick(key)
-	gtx.Constraints.Min.X = gtx.Dp(unit.Dp(96))
+	// 折叠钮与结果页分页钮同族同宽 84dp（曾 96dp，同族小钮三种宽并存）
+	gtx.Constraints.Min.X = gtx.Dp(unit.Dp(84))
 	gtx.Constraints.Min.Y = gtx.Dp(unit.Dp(24))
 	bl := material.ButtonLayout(a.th.Theme, c)
 	bl.Background = ColS3
@@ -436,10 +484,10 @@ func baselineRawBlock(gtx layout.Context, th *Theme, st BaselineCheckState, targ
 }
 
 // baselineLED 相位状态点（8dp 实心圆，idle 相位用 Tx3 族表达待命）。
-func baselineLED(gtx layout.Context, phase string) layout.Dimensions {
+func baselineLED(gtx layout.Context, phase, level string) layout.Dimensions {
 	d := gtx.Dp(unit.Dp(8))
 	size := image.Pt(d, d)
 	defer clipCircle(gtx, d)()
-	paintFill(gtx, baselinePhaseColor(phase))
+	paintFill(gtx, baselinePhaseColor(phase, level))
 	return layout.Dimensions{Size: size}
 }

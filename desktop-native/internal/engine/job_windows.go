@@ -23,8 +23,8 @@ func attachJob(pid int) (io.Closer, error) {
 		return nil, fmt.Errorf("进程不可用")
 	}
 	const (
-		procSetQuota   = 0x0100 // AssignProcessToJobObject 所需权限之一
-		procTerminate  = 0x0001
+		procSetQuota  = 0x0100 // AssignProcessToJobObject 所需权限之一
+		procTerminate = 0x0001
 	)
 	ph, err := windows.OpenProcess(procSetQuota|procTerminate, false, uint32(pid))
 	if err != nil {

@@ -16,7 +16,8 @@ func (a *appUI) pageNewTask(gtx layout.Context) layout.Dimensions {
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return layout.Inset{Top: Sp4}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				return card(gtx, ColS2, R3, func(gtx layout.Context) layout.Dimensions {
-					return layout.Inset{Top: Sp4, Right: Sp4, Bottom: Sp4, Left: Sp4}.Layout(gtx, a.newTaskForm)
+					// 内衬与其余六页内容卡同节奏 3/3/4/4（曾四边全 Sp4）
+					return layout.Inset{Top: Sp3, Right: Sp4, Bottom: Sp3, Left: Sp4}.Layout(gtx, a.newTaskForm)
 				})
 			})
 		}),
@@ -55,7 +56,8 @@ func (a *appUI) newTaskForm(gtx layout.Context) layout.Dimensions {
 			})
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return layout.Inset{Top: Sp2}.Layout(gtx, moduleGrid(a))
+			// 区块标签→控件统一 Sp1 一档（目标井/参数井同为 Sp1，曾三处三样）
+			return layout.Inset{Top: Sp1}.Layout(gtx, moduleGrid(a))
 		}),
 		// 可选参数
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -132,9 +134,10 @@ func moduleGrid(a *appUI) layout.Widget {
 // 焦点可视，Tab 遍历先前不可辨——真窗口验收 M2）。
 func inputWell(gtx layout.Context, th *Theme, ed *widget.Editor, size unit.Sp, hint string) layout.Dimensions {
 	body := func(gtx layout.Context) layout.Dimensions {
-		gtx.Constraints.Min.Y = gtx.Dp(unit.Dp(40))
+		// 井高 42dp = 内衬上下 Sp2(8) + 文本行：间距回归 4 的倍数律（曾 9dp 魔法数 + 40dp）
+		gtx.Constraints.Min.Y = gtx.Dp(unit.Dp(42))
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
-		return layout.Inset{Top: unit.Dp(9), Bottom: unit.Dp(9), Left: Sp3, Right: Sp3}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return layout.Inset{Top: Sp2, Bottom: Sp2, Left: Sp3, Right: Sp3}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			e := material.Editor(th.Theme, ed, hint)
 			e.TextSize = size
 			e.Color = ColTx1
@@ -164,7 +167,9 @@ func banner(gtx layout.Context, th *Theme, s string, bg, fg colorNRGBA) layout.D
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
 		return layout.Inset{Top: Sp2, Bottom: Sp2, Left: Sp3, Right: Sp3}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			l := label(th, s, Fs12, fg)
-			l.MaxLines = 3
+			// 指引类必达文案（如 Go 引擎构建指引）经此上屏：放宽到 5 行防
+			// 窄窗口裁尾（Gio 截断不渲染省略号，裁了无感知）
+			l.MaxLines = 5
 			return l.Layout(gtx)
 		})
 	})

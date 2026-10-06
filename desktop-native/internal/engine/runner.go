@@ -220,7 +220,7 @@ func CmdAllowed(cmd string) bool { return cmdSet[cmd] }
 // 不过这里。baseline 目标走 -d（域名形态，归一化由 session 层保证）。
 func BuildCmdArgs(cmd, target string, extra []string) ([]string, error) {
 	if !cmdSet[cmd] {
-		return nil, fmt.Errorf("不支持的子命令: %s", cmd)
+		return nil, fmt.Errorf("不支持的子命令：%s", cmd)
 	}
 	if err := ValidateExtraArgs(cmd, extra); err != nil {
 		return nil, err
@@ -255,10 +255,10 @@ func (r *Runner) Start(id, cmd, target string, extra []string) error {
 	// 畸形 id 拼进 progress/log 文件路径。目标本身全部默认授权（用户裁定
 	// 2026-10-05），本闸只做格式卫生。
 	if _, err := whitelist.Check(target); err != nil {
-		return fmt.Errorf("目标格式校验未通过: %w", err)
+		return fmt.Errorf("目标格式校验未通过：%w", err)
 	}
 	if !taskIDRe.MatchString(id) {
-		return fmt.Errorf("任务 ID 含不允许的字符: %q", id)
+		return fmt.Errorf("任务 ID 含不允许的字符：%q", id)
 	}
 	argv, err := BuildCmdArgs(cmd, target, extra)
 	if err != nil {
@@ -311,7 +311,7 @@ func (r *Runner) Start(id, cmd, target string, extra []string) error {
 	if _, dup := r.procs[id]; dup {
 		r.mu.Unlock()
 		logFile.Close()
-		return fmt.Errorf("任务已在运行: %s", id)
+		return fmt.Errorf("任务已在运行：%s", id)
 	}
 	// created 窗口/竞态：hStop 可能抢在注册进程前到达（Stop 对无进程任务
 	// 也插 stopping 旗），此处自检放弃，不得照常起进程把停止吞掉。
@@ -319,12 +319,12 @@ func (r *Runner) Start(id, cmd, target string, extra []string) error {
 		delete(r.stopping, id)
 		r.mu.Unlock()
 		logFile.Close()
-		return fmt.Errorf("任务已请求停止: %s", id)
+		return fmt.Errorf("任务已请求停止：%s", id)
 	}
 	if err := c.Start(); err != nil {
 		r.mu.Unlock()
 		logFile.Close()
-		return fmt.Errorf("启动失败: %w", err)
+		return fmt.Errorf("启动失败：%w", err)
 	}
 	r.procs[id] = c
 	delete(r.stopping, id)

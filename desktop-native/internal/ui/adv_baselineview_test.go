@@ -19,14 +19,14 @@ import (
 func TestAdvUIBrokenJSONStates(t *testing.T) {
 	cases := map[string]string{
 		"空文件":     "",
-		"纯垃圾":      "not json at all",
-		"截断JSON":   `{"check":"secheaders","target":"example.com","conclu`,
-		"BOM前缀":    "\xef\xbb\xbf" + `{"check":"secheaders"}`,
-		"顶层数组":     `[1,2,3]`,
-		"二进制垃圾":    "\x00\x01\x02\xff\xfe{}",
-		"双JSON粘包":  `{"check":"a"}{"check":"b"}`,
-		"裸NaN":     `{"check":"a","data":{"x":NaN}}`,
-		"注释尾随":     `{"check":"a"} /* trailing */`,
+		"纯垃圾":     "not json at all",
+		"截断JSON":  `{"check":"secheaders","target":"example.com","conclu`,
+		"BOM前缀":   "\xef\xbb\xbf" + `{"check":"secheaders"}`,
+		"顶层数组":    `[1,2,3]`,
+		"二进制垃圾":   "\x00\x01\x02\xff\xfe{}",
+		"双JSON粘包": `{"check":"a"}{"check":"b"}`,
+		"裸NaN":    `{"check":"a","data":{"x":NaN}}`,
+		"注释尾随":    `{"check":"a"} /* trailing */`,
 		// F6（终修轮）后 check 字段不再解析绑定，键冲突样例换到仍绑定的
 		// target 字段——坏 JSON 检测契约保持在仍被解析的字段上。
 		"唯一键类型冲突": `{"target":"a","target":123}`,

@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"image"
 
 	"gioui.org/layout"
 	"gioui.org/unit"
@@ -28,13 +29,22 @@ func (a *appUI) pageResults(gtx layout.Context) layout.Dimensions {
 					return layout.Dimensions{}
 				}),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					if a.selID == "" {
-						return layout.Dimensions{}
+					// 固定宽度槽位：停止钮随运行态出现/消失时，「导出证据包」
+					// 不再跟着横跳（点击目标漂移）。槽宽 96dp ≥ 按钮自然宽
+					//（6 个汉字 × 11.375sp ≈ 68dp + material 左右 12dp 内衬）。
+					const slotW = unit.Dp(96)
+					visible := false
+					if a.selID != "" {
+						if t, ok := a.sess.Task(a.selID); ok &&
+							(t.Status == "running" || t.Status == "created") {
+							visible = true
+						}
 					}
-					t, ok := a.sess.Task(a.selID)
-					if !ok || (t.Status != "running" && t.Status != "created") {
-						return layout.Dimensions{}
+					if !visible {
+						return layout.Dimensions{Size: image.Pt(gtx.Dp(slotW), 0)}
 					}
+					gtx.Constraints.Min.X = gtx.Dp(slotW)
+					gtx.Constraints.Min.Y = gtx.Dp(unit.Dp(30))
 					btn := material.Button(a.th.Theme, &a.stopBtn, "停止选中任务")
 					btn.Background = ColErrBg
 					btn.Color = ColErr
@@ -46,6 +56,10 @@ func (a *appUI) pageResults(gtx layout.Context) layout.Dimensions {
 						labelTxt, bg, fg := "导出证据包", ColS3, ColTx1
 						if a.exportBusy {
 							labelTxt, bg, fg = "正在打包…", ColS1, ColTx3
+							// 忙态真禁用：Disabled 上下文不投递事件，material
+							// 走 Disabled 灰化混色，无悬停罩与按压动画
+							//（update 层另有 !a.exportBusy 守卫双保险）
+							gtx = gtx.Disabled()
 						}
 						btn := material.Button(a.th.Theme, &a.exportBtn, labelTxt)
 						btn.Background = bg
@@ -62,13 +76,25 @@ func (a *appUI) pageResults(gtx layout.Context) layout.Dimensions {
 				return layout.Dimensions{}
 			}
 			return layout.Inset{Top: Sp2}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				// 成败色来自 exportResult.err 结构化回执，不靠文案前缀反推
+				//（曾按字节切片 a.exportMsg[:4] 比「导出失败」12 字节字面量，
+				// 恒不相等 → 失败回执恒显成功绿）。
 				col := ColOk
-				if len(a.exportMsg) > 3 && a.exportMsg[:4] == "导出失败" {
+				if a.exportFailed {
 					col = ColErr
 				}
 				l := monoLabel(a.th, a.exportMsg, Fs12, col)
 				l.MaxLines = 2
 				return l.Layout(gtx)
+			})
+		}),
+		// 停止失败横条（停止钮与 Esc 停止共用一条回执槽；任务终态即清）
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			if a.stopErr == "" {
+				return layout.Dimensions{}
+			}
+			return layout.Inset{Top: Sp2}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return errBanner(gtx, a.th, a.stopErr)
 			})
 		}),
 		// 模块 tab 行
@@ -155,6 +181,9 @@ func (a *appUI) pagerRow(gtx layout.Context, page, pages int, prev, next *widget
 			bg, fg := ColS3, ColTx1
 			if !enabled {
 				bg, fg = ColS1, ColTx3
+				// 边界灰显真禁用：Disabled 上下文不投递事件，悬停/按压
+				// 反馈一并消失（灰显=不可点，视觉与行为一致）
+				gtx = gtx.Disabled()
 			}
 			gtx.Constraints.Min.X = gtx.Dp(unit.Dp(84))
 			gtx.Constraints.Min.Y = gtx.Dp(unit.Dp(26))
@@ -193,6 +222,11 @@ func (a *appUI) taskListTable(gtx layout.Context, rows []TaskRow) layout.Dimensi
 			return hairline(gtx, ColLn1)
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			// 视口钳到 min(300dp, 可用高)：任务满一页时不再把列表越界铺满
+			// 整窗，把分页条和下方「任务详情+过程表」挤出窗口不可达（同
+			// resultTable 过程表的同款修复件——Gio List 内容超高时 pos 钳到
+			// mainMax，会吃满全部剩余视口）。
+			gtx.Constraints.Max.Y = min(gtx.Constraints.Max.Y, gtx.Dp(unit.Dp(300)))
 			list := a.taskList // 持久 List：滚动位置跨帧存活
 			list.Axis = layout.Vertical
 			return list.Layout(gtx, len(rows), func(gtx layout.Context, i int) layout.Dimensions {

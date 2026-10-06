@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"fmt"
 	"image"
 	"os"
 	"path/filepath"
@@ -33,32 +32,36 @@ func (a *appUI) pageTools(gtx layout.Context) layout.Dimensions {
 					m := m
 					out = append(out, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						gtx.Constraints.Min.X = gtx.Constraints.Max.X
-						return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
-							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								return layout.Inset{Right: Sp4}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-									l := label(a.th, m.Label, Fs13, ColTx1)
-									l.MaxLines = 1
-									return l.Layout(gtx)
-								})
-							}),
-							layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-								return layout.Inset{Right: Sp4}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-									l := label(a.th, m.Desc, Fs12, ColTx2)
-									l.MaxLines = 1
-									return l.Layout(gtx)
-								})
-							}),
-							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								return monoLabel(a.th, m.Key, Fs11, ColTx3).Layout(gtx)
-							}),
-						)
+						// 行间 Sp1：10 行纯文字曾零行距贴死，与同页卡片区密度反差大
+						return layout.Inset{Bottom: Sp1}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+							return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
+								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+									return layout.Inset{Right: Sp4}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+										l := label(a.th, m.Label, Fs13, ColTx1)
+										l.MaxLines = 1
+										return l.Layout(gtx)
+									})
+								}),
+								layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+									return layout.Inset{Right: Sp4}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+										l := label(a.th, m.Desc, Fs12, ColTx2)
+										l.MaxLines = 1
+										return l.Layout(gtx)
+									})
+								}),
+								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+									return monoLabel(a.th, m.Key, Fs11, ColTx3).Layout(gtx)
+								}),
+							)
+						})
 					}))
 				}
 				return layout.Flex{Axis: layout.Vertical}.Layout(gtx, out...)
 			})
 		},
 		func(gtx layout.Context) layout.Dimensions {
-			return layout.Inset{Top: Sp5}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			// 分区间距统一 Sp4（首段曾 Sp5，同页三段两种节奏）
+			return layout.Inset{Top: Sp4}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				return card(gtx, ColS2, R3, func(gtx layout.Context) layout.Dimensions {
 					gtx.Constraints.Min.X = gtx.Constraints.Max.X
 					return layout.Inset{Top: Sp3, Bottom: Sp3, Left: Sp4, Right: Sp4}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -70,13 +73,20 @@ func (a *appUI) pageTools(gtx layout.Context) layout.Dimensions {
 								return layout.Inset{Top: Sp2}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 									return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 										layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+											// 探测中真禁用：事件不投递，右侧结论行显「探测中…」
+											if a.mockBusy {
+												gtx = gtx.Disabled()
+											}
 											btn := mockButton(a)
 											return focusOutline(gtx, &a.mockBtn, btn.Layout(gtx), R2)
 										}),
 										layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 											return layout.Inset{Left: Sp3}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 												txt := "点「探测」检查 mock 靶站是否已起"
-												if mockPro {
+												switch {
+												case a.mockState != "": // 探测在后台跑的中间态
+													txt = a.mockState
+												case mockPro:
 													txt = map[bool]string{
 														true:  "mock 靶站可达：127.0.0.1:8799",
 														false: "mock 靶站不可达——在仓库根跑 python tests/mock_server.py",
@@ -109,16 +119,12 @@ func (a *appUI) pageTools(gtx layout.Context) layout.Dimensions {
 							}),
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 								return layout.Inset{Top: Sp2}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-									return monoLabel(a.th,
-										fmt.Sprintf("扫描产物 out\\：        %s", filepath.Join(a.sess.RepoRoot, "out")),
-										Fs12, ColTx2).Layout(gtx)
+									return kvRow(gtx, a.th, "扫描产物目录", filepath.Join(a.sess.RepoRoot, "out"))
 								})
 							}),
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 								return layout.Inset{Top: Sp1}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-									return monoLabel(a.th,
-										fmt.Sprintf("任务库/日志 data：     %s", a.sess.DataDir),
-										Fs12, ColTx2).Layout(gtx)
+									return kvRow(gtx, a.th, "任务库/日志目录", a.sess.DataDir)
 								})
 							}),
 						)
@@ -135,13 +141,31 @@ func (a *appUI) pageTools(gtx layout.Context) layout.Dimensions {
 	})
 }
 
-// mockButton 探测按钮（次按钮观感：s3 底）。
+// mockButton 探测按钮（次按钮观感：s3 底；探测中的 Disabled 在调用点包）。
 func mockButton(a *appUI) material.ButtonStyle {
 	btn := material.Button(a.th.Theme, &a.mockBtn, "探测")
 	btn.Background = ColS3
 	btn.Color = ColTx1
 	btn.CornerRadius = R2
 	return btn
+}
+
+// kvRow 两列行：定宽标签 + 等宽路径。曾靠手补空格对齐单行文案——标签含
+// 中文时 monoLabel 整串回退比例字体，补位必不齐；两列布局天然对齐。
+func kvRow(gtx layout.Context, th *Theme, k, v string) layout.Dimensions {
+	return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			// 定宽列宽按最宽标签「任务库/日志目录」7 字 + 斜杠 ≈ 90dp 取 4 的倍数
+			gtx.Constraints.Min.X = gtx.Dp(unit.Dp(96))
+			gtx.Constraints.Max.X = gtx.Constraints.Min.X
+			return layout.Inset{Right: Sp2}.Layout(gtx, sectionLabel(th, k).Layout)
+		}),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			l := monoLabel(th, v, Fs12, ColTx2)
+			l.MaxLines = 1
+			return l.Layout(gtx)
+		}),
+	)
 }
 
 // statusProbe 探测结果的文字颜色。

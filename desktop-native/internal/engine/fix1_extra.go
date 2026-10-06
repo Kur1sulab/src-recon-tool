@@ -56,24 +56,24 @@ func ValidateExtraArgs(cmd string, extra []string) error {
 	for _, tk := range extra {
 		if strings.HasPrefix(tk, "-") {
 			if expectValue {
-				return fmt.Errorf("旗标取值不允许以 - 开头: %s", tk)
+				return fmt.Errorf("旗标取值不允许以 - 开头：%s", tk)
 			}
 			name := tk
 			if i := strings.IndexByte(tk, '='); i >= 0 {
 				name = tk[:i]
 				if strings.HasPrefix(tk[i+1:], "-") {
-					return fmt.Errorf("旗标取值不允许以 - 开头: %s", tk)
+					return fmt.Errorf("旗标取值不允许以 - 开头：%s", tk)
 				}
 			}
 			if !allowed[name] {
-				return fmt.Errorf("该子命令不允许的旗标: %s", name)
+				return fmt.Errorf("该子命令不允许的旗标：%s", name)
 			}
 			lastFlag = name
 			expectValue = valueFlags[name] && !strings.Contains(tk, "=")
 			continue
 		}
 		if !expectValue {
-			return fmt.Errorf("游离参数不允许: %s", tk)
+			return fmt.Errorf("游离参数不允许：%s", tk)
 		}
 		expectValue = false
 	}

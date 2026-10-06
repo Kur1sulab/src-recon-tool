@@ -87,7 +87,8 @@ func statCards(gtx layout.Context, th *Theme, total, running, done, failed int) 
 			for _, c := range rowCards {
 				c := c
 				row = append(row, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return layout.Inset{Right: Sp3, Bottom: Sp2}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					// 纵缝同横缝 Sp3：2+2 折行时十字缝对称（曾纵 8dp 横 12dp）
+					return layout.Inset{Right: Sp3, Bottom: Sp3}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 						// 定宽钉在 card 的入参约束上：card 内部 Stack 会清掉内容的
 						// Min，钉在内容上无效；card 返回尺寸经 Constrain 抬到 Min，
 						// 底色（card 内铺满 Max.X）随之铺满整卡。
@@ -134,13 +135,14 @@ func sectionLabel(th *Theme, s string) labelStyle {
 	return l
 }
 
-// emptyHint 空态提示。
+// emptyHint 空态提示（Tx2 次文档：空页时它是唯一可读内容兼行动指引，
+// 曾与「生成于…」脚注同用弱注档 Tx3，层次过轻）。
 func emptyHint(gtx layout.Context, th *Theme, s string) layout.Dimensions {
 	return card(gtx, ColS2, R3, func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Min.Y = gtx.Dp(unit.Dp(64))
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
 		return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			return label(th, s, Fs13, ColTx3).Layout(gtx)
+			return label(th, s, Fs13, ColTx2).Layout(gtx)
 		})
 	})
 }

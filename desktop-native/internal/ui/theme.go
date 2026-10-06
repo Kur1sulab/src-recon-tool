@@ -1,9 +1,11 @@
 package ui
 
 import (
+	"fmt"
 	"image"
 	"image/color"
 	"os"
+	"path/filepath"
 	"unicode/utf8"
 
 	"gioui.org/font"
@@ -141,10 +143,24 @@ const (
 // 内嵌兜底字体待 assets 立项，见交付说明）。
 func loadFaces() (faces []font.FontFace, hasMono bool) {
 	faces = gofont.Collection()
-	if b, err := os.ReadFile(`C:\Windows\Fonts\msyh.ttc`); err == nil {
-		if fs, err := opentype.ParseCollection(b); err == nil {
-			faces = fs
+	// 中文主字体逐级回退：msyh.ttc 缺失不再单点出豆腐块——
+	// msyhl.ttc（雅黑 Light）/ simsun.ttc（宋体）Windows 全系自带
+	cjkLoaded := false
+	for _, name := range []string{"msyh.ttc", "msyhl.ttc", "simsun.ttc"} {
+		b, err := os.ReadFile(filepath.Join(`C:\Windows\Fonts`, name))
+		if err != nil {
+			continue
 		}
+		fs, err := opentype.ParseCollection(b)
+		if err != nil {
+			continue
+		}
+		faces, cjkLoaded = fs, true
+		break
+	}
+	if !cjkLoaded {
+		// 三级全空（精简/裁剪系统）：写一行到 stderr 便于交付排查
+		fmt.Fprintln(os.Stderr, "信息收集工具：未找到系统中文字体（msyh.ttc/msyhl.ttc/simsun.ttc），界面中文将显示为方块")
 	}
 	if b, err := os.ReadFile(`C:\Windows\Fonts\consola.ttf`); err == nil {
 		if fs, err := opentype.ParseCollection(b); err == nil {

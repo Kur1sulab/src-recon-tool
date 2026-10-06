@@ -114,7 +114,7 @@ func parseBaselineResult(check string, body []byte) BaselineResult {
 		Error string            `json:"error"`
 	}
 	if err := json.Unmarshal(body, &env); err != nil {
-		res.Error = "产物解析失败: " + err.Error()
+		res.Error = "产物解析失败：" + err.Error()
 		return res
 	}
 	for _, raw := range env.Risks {
@@ -296,14 +296,20 @@ func baselinePhaseLabel(phase string) string {
 }
 
 // baselinePhaseColor 相位 → LED/文字色（浅色主题既有常量，Idle 不作文字色）。
-func baselinePhaseColor(phase string) colorNRGBA {
+// level 取结论等级（conclusion 相位用）：LED 与卡顶色条/相位文字同色相——
+// 曾恒绿，fail 级结论卡呈「绿点+红条红字」双信号。skipped 归警示橙族
+//（预算耗尽不是故障，曾与 failed 同柄分红、同卡橙条红点打架）。
+func baselinePhaseColor(phase, level string) colorNRGBA {
 	switch phase {
 	case "running":
 		return ColAccHi
 	case "conclusion":
-		return ColOk
-	case "failed", "skipped":
+		_, fg := baselineLevelColor(level)
+		return fg
+	case "failed":
 		return ColErr
+	case "skipped":
+		return ColWarn
 	}
 	return ColTx3
 }

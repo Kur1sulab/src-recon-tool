@@ -35,11 +35,11 @@ type Session struct {
 func NewSession(repoRoot, dataDir, pythonPath string) (*Session, error) {
 	st, err := store.Open(filepath.Join(dataDir, "tasks.json"))
 	if err != nil {
-		return nil, fmt.Errorf("打开任务库失败: %w", err)
+		return nil, fmt.Errorf("打开任务库失败：%w", err)
 	}
 	settings, lerr := LoadSettings(dataDir)
 	if lerr != nil {
-		return nil, fmt.Errorf("读取设置失败: %w", lerr)
+		return nil, fmt.Errorf("读取设置失败：%w", lerr)
 	}
 	if settings.PythonPath != "" {
 		pythonPath = settings.PythonPath
@@ -85,7 +85,7 @@ func (s *Session) CreateTask(target, cmd, argsRaw string) (string, error) {
 		return "", fmt.Errorf("目标过长（上限 200 字符）")
 	}
 	if !engine.CmdAllowed(cmd) {
-		return "", fmt.Errorf("不支持的模块: %s", cmd)
+		return "", fmt.Errorf("不支持的模块：%s", cmd)
 	}
 	// 目标卫生校验：控制字符/协议/端口/路径穿越一律拒绝（格式问题），
 	// 目标本身全部默认授权（用户裁定 2026-10-05）。
@@ -93,7 +93,7 @@ func (s *Session) CreateTask(target, cmd, argsRaw string) (string, error) {
 	// 校验对象与执行对象一致——双尾点等「等价写法」不再以原始串进 argv。
 	key, err := whitelist.Check(target)
 	if err != nil {
-		return "", fmt.Errorf("目标格式不合法: %w", err)
+		return "", fmt.Errorf("目标格式不合法：%w", err)
 	}
 	normalized, err := normalizeTarget(cmd, key, target)
 	if err != nil {
@@ -120,7 +120,7 @@ func (s *Session) CreateTask(target, cmd, argsRaw string) (string, error) {
 		LogPath:   filepath.Join(s.DataDir, "logs", id+".log"),
 	}
 	if err := s.Store.Create(task); err != nil {
-		return "", fmt.Errorf("任务入库失败: %w", err)
+		return "", fmt.Errorf("任务入库失败：%w", err)
 	}
 	if err := s.Runner.Start(id, cmd, normalized, extra); err != nil {
 		_ = s.Store.Update(id, func(t *store.Task) {
@@ -136,7 +136,7 @@ func (s *Session) CreateTask(target, cmd, argsRaw string) (string, error) {
 				Event: "pipeline_end", Detail: "fail",
 			})
 		})
-		return "", fmt.Errorf("启动扫描失败: %w", err)
+		return "", fmt.Errorf("启动扫描失败：%w", err)
 	}
 	return id, nil
 }
@@ -199,11 +199,11 @@ func (s *Session) SetPythonPath(path string) error {
 	}
 	st, err := LoadSettings(s.DataDir)
 	if err != nil {
-		return fmt.Errorf("设置读取失败: %w", err)
+		return fmt.Errorf("设置读取失败：%w", err)
 	}
 	st.PythonPath = path
 	if err := SaveSettings(s.DataDir, st); err != nil {
-		return fmt.Errorf("设置写入失败: %w", err)
+		return fmt.Errorf("设置写入失败：%w", err)
 	}
 	s.rebuildRunner(path)
 	return nil
@@ -221,11 +221,11 @@ func (s *Session) SetGoEnginePath(path string) error {
 	}
 	st, err := LoadSettings(s.DataDir)
 	if err != nil {
-		return fmt.Errorf("设置读取失败: %w", err)
+		return fmt.Errorf("设置读取失败：%w", err)
 	}
 	st.GoEnginePath = path
 	if err := SaveSettings(s.DataDir, st); err != nil {
-		return fmt.Errorf("设置写入失败: %w", err)
+		return fmt.Errorf("设置写入失败：%w", err)
 	}
 	s.rebuildRunner(st.PythonPath)
 	return nil
@@ -324,15 +324,15 @@ func parseArgs(raw string) ([]string, error) {
 		lower := strings.ToLower(tk)
 		if strings.HasPrefix(lower, "--progress-file") || strings.HasPrefix(lower, "--progress_file") ||
 			lower == "-h" || lower == "--help" {
-			return nil, fmt.Errorf("不允许的参数: %s", tk)
+			return nil, fmt.Errorf("不允许的参数：%s", tk)
 		}
 		if targetFlagTokens[flagName(tk)] {
 			// 格式卫生口径（产品铁律：界面零授权/白名单字样）：目标类旗标
 			// 一律由目标框注入，可选参数里出现同名/同义旗标按格式问题拒绝
-			return nil, fmt.Errorf("可选参数不允许指定目标类参数: %s，目标请填在「扫描目标」框", tk)
+			return nil, fmt.Errorf("可选参数不允许指定目标类参数：%s，目标请填在「扫描目标」框", tk)
 		}
 		if !argsTokenRe.MatchString(tk) {
-			return nil, fmt.Errorf("参数含不允许的字符: %s", tk)
+			return nil, fmt.Errorf("参数含不允许的字符：%s", tk)
 		}
 	}
 	return tokens, nil

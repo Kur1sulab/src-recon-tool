@@ -62,11 +62,11 @@ func TestCreateTaskWhitespaceContract(t *testing.T) {
 
 func TestStatColsNarrowWrap(t *testing.T) {
 	cases := map[int]int{
-		0:   4,   // 宽度未知按宽处置
-		756: 4,   // 恰容一行（4×180+3×12）
-		755: 2,   // 差 1dp 即折两行
-		420: 2,   // 两行 2+2 的最小舒适宽
-		-1:  4,   // 非法宽度按宽处置
+		0:   4, // 宽度未知按宽处置
+		756: 4, // 恰容一行（4×180+3×12）
+		755: 2, // 差 1dp 即折两行
+		420: 2, // 两行 2+2 的最小舒适宽
+		-1:  4, // 非法宽度按宽处置
 	}
 	for w, want := range cases {
 		if got := statCols(w); got != want {

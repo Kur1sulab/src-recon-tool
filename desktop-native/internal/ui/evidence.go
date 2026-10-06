@@ -124,7 +124,7 @@ func (s *Session) ExportEvidence(id string) (path, mode string, packed, skipped 
 	// 防目录穿越：解析后必须仍在 out/ 前缀内
 	outRoot, aerr := filepath.Abs(filepath.Join(s.RepoRoot, "out"))
 	if aerr != nil {
-		return "", "", 0, 0, fmt.Errorf("解析 out 目录失败: %w", aerr)
+		return "", "", 0, 0, fmt.Errorf("解析 out 目录失败：%w", aerr)
 	}
 	absDir, aerr := filepath.Abs(dir)
 	if aerr != nil || !strings.HasPrefix(absDir, outRoot+string(filepath.Separator)) {
