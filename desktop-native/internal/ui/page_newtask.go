@@ -78,7 +78,9 @@ func (a *appUI) newTaskForm(gtx layout.Context) layout.Dimensions {
 			return layout.Inset{Top: Sp5}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				btn := material.Button(a.th.Theme, &a.startBtn, "开始扫描")
 				return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
-					layout.Rigid(btn.Layout),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return focusOutline(gtx, &a.startBtn, btn.Layout(gtx), R2)
+					}),
 				)
 			})
 		}),

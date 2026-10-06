@@ -103,23 +103,23 @@ type appUI struct {
 	newOK     string
 
 	// 结果页
-	tasks      []store.Task
-	selID      string
-	taskClicks map[string]*widget.Clickable
-	tabClicks  map[string]*widget.Clickable // 模块 tab（含 "" 全部）
-	stopBtn    widget.Clickable
-	lastPoll   time.Time
-	moduleTab  widget.Enum // 值为模块 key；"" = 全部
-	listPage   int         // 任务列表当前页
-	rowsPage   int         // 过程表当前页
-	prevList   widget.Clickable
-	nextList   widget.Clickable
-	prevRows   widget.Clickable
-	nextRows   widget.Clickable
-	exportBtn  widget.Clickable
-	exportBusy bool
-	exportMsg  string
-	exportDone chan exportResult // 后台打包线程 → 事件循环（缓冲 1）
+	tasks         []store.Task
+	selID         string
+	taskClicks    map[string]*widget.Clickable
+	tabClicks     map[string]*widget.Clickable // 模块 tab（含 "" 全部）
+	stopBtn       widget.Clickable
+	lastPoll      time.Time
+	moduleTab     widget.Enum // 值为模块 key；"" = 全部
+	listPage      int         // 任务列表当前页
+	rowsPage      int         // 过程表当前页
+	prevList      widget.Clickable
+	nextList      widget.Clickable
+	prevRows      widget.Clickable
+	nextRows      widget.Clickable
+	exportBtn     widget.Clickable
+	exportBusy    bool
+	exportMsg     string
+	exportDone    chan exportResult    // 后台打包线程 → 事件循环（缓冲 1）
 	selBaseKey    string               // 选中基线任务的产物快照键（id@状态）
 	selBaseStates []BaselineCheckState // 选中基线任务的 8 槽位产物（结论行数据源）
 
@@ -128,34 +128,36 @@ type appUI struct {
 	mockState string
 
 	// 设置页
-	pyEd     widget.Editor
-	checkBtn widget.Clickable
-	saveBtn  widget.Clickable
-	pyResult string
-	goEd     widget.Editor
+	pyEd       widget.Editor
+	checkBtn   widget.Clickable
+	saveBtn    widget.Clickable
+	pyResult   string
+	goEd       widget.Editor
 	goCheckBtn widget.Clickable
 	goSaveBtn  widget.Clickable
 	goResult   string
 
 	// 暴露面仪表盘页（第六页）
-	baseTargetEd widget.Editor
-	baseRunBtn   widget.Clickable
-	baseErr      string
-	baseOK       string
-	baseTarget   string                // 当前快照对应的归一化目标（"" = 输入非法/空）
-	baseStates   []BaselineCheckState  // 8 检查槽位产物快照
-	baseEvents   map[string]string     // 最新基线任务的每检查运行态
-	baseRunID    string                // 该目标最新基线任务 id（Esc 停止用）
-	baseStatus   string                // 该任务状态（queued 相位判定）
-	baseJSONOpen map[string]bool       // 检查名 → 原始 JSON 折叠展开
-	baseJSONBtns map[string]*widget.Clickable
+	baseTargetEd  widget.Editor
+	baseRunBtn    widget.Clickable
+	baseErr       string
+	baseOK        string
+	baseTarget    string               // 当前快照对应的归一化目标（"" = 输入非法/空）
+	baseStates    []BaselineCheckState // 8 检查槽位产物快照
+	baseEvents    map[string]string    // 最新基线任务的每检查运行态
+	baseRunID     string               // 该目标最新基线任务 id（Esc 停止用）
+	baseStatus    string               // 该任务状态（queued 相位判定）
+	baseJSONOpen  map[string]bool      // 检查名 → 原始 JSON 折叠展开
+	baseJSONBtns  map[string]*widget.Clickable
+	baseLastInput string // 横条生命周期锚：目标输入串变化=上一次尝试的横条失效（pollBaseline）
 
 	// 滚动位置必须跨帧存活：layout.List 的 Position 是组件状态，每帧新建
 	// List 等于每帧把滚动位置清零（视觉验收实锤：滚轮滚表格纹丝不动）。
-	taskList layout.List // 结果页任务列表
-	procList layout.List // 结果页过程记录表
-	baseList layout.List // 暴露面仪表盘检查卡列表
-	tabList  layout.List // 结果页模块 tab 行（横向，11 胶囊超主区宽）
+	taskList  layout.List // 结果页任务列表
+	procList  layout.List // 结果页过程记录表
+	baseList  layout.List // 暴露面仪表盘检查卡列表
+	toolsList layout.List // 工具页整页滚动（验收实锤：每帧新建致底面板不可达）
+	tabList   layout.List // 结果页模块 tab 行（横向，11 胶囊超主区宽）
 }
 
 // exportResult 证据包后台导出的回执。
@@ -232,6 +234,10 @@ func Run() error {
 			a.update(gtx)
 			a.layout(gtx)
 			e.Frame(gtx.Ops)
+		default:
+			// 平台侧事件挂钩：Windows 下窗口建立时经 Win32ViewEvent 拿
+			// HWND 装滚轮修复（wheel_windows.go）；其余平台无操作。
+			handlePlatformEvent(e)
 		}
 	}
 }
@@ -244,8 +250,9 @@ func newAppUI(sess *Session) *appUI {
 		tabClicks:  map[string]*widget.Clickable{},
 		exportDone: make(chan exportResult, 1),
 	}
-	a.moduleTab.Value = ""    // 结果页 tab：默认「全部」
-	a.moduleSel.Value = "all" // 新建任务页：默认「全部模块」
+	a.moduleTab.Value = ""        // 结果页 tab：默认「全部」
+	a.moduleSel.Value = "all"     // 新建任务页：默认「全部模块」
+	a.listPage, a.rowsPage = 1, 1 // 分页条初值「第 1 页」（零值起步会显示第 0 页）
 	a.targetEd.SingleLine = true
 	a.argsEd.SingleLine = true
 	a.pyEd.SingleLine = true
@@ -629,7 +636,7 @@ func (a *appUI) navItem(gtx layout.Context, i int, name string) layout.Dimension
 	bl := material.ButtonLayout(a.th.Theme, btn)
 	bl.Background = bg
 	bl.CornerRadius = 0
-	return bl.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	dims := bl.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				// 选中轨：3dp 品牌青竖条
@@ -651,6 +658,7 @@ func (a *appUI) navItem(gtx layout.Context, i int, name string) layout.Dimension
 			}),
 		)
 	})
+	return focusOutline(gtx, btn, dims, 0)
 }
 
 // mainArea 主区：按当前页分发。

@@ -60,12 +60,12 @@ func (a *appUI) pythonCard(gtx layout.Context) layout.Dimensions {
 								btn.Background = ColS3
 								btn.Color = ColTx1
 								btn.CornerRadius = R2
-								return btn.Layout(gtx)
+								return focusOutline(gtx, &a.checkBtn, btn.Layout(gtx), R2)
 							}),
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 								return layout.Inset{Left: Sp2}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 									btn := material.Button(a.th.Theme, &a.saveBtn, "保存并生效")
-									return btn.Layout(gtx)
+									return focusOutline(gtx, &a.saveBtn, btn.Layout(gtx), R2)
 								})
 							}),
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -126,12 +126,12 @@ func (a *appUI) goEngineCard(gtx layout.Context) layout.Dimensions {
 								btn.Background = ColS3
 								btn.Color = ColTx1
 								btn.CornerRadius = R2
-								return btn.Layout(gtx)
+								return focusOutline(gtx, &a.goCheckBtn, btn.Layout(gtx), R2)
 							}),
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 								return layout.Inset{Left: Sp2}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 									btn := material.Button(a.th.Theme, &a.goSaveBtn, "保存并生效")
-									return btn.Layout(gtx)
+									return focusOutline(gtx, &a.goSaveBtn, btn.Layout(gtx), R2)
 								})
 							}),
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {

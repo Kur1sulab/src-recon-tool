@@ -9,6 +9,7 @@ import (
 	"gioui.org/font"
 	"gioui.org/font/gofont"
 	"gioui.org/font/opentype"
+	"gioui.org/io/event"
 	"gioui.org/layout"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
@@ -229,6 +230,18 @@ func focusRing(gtx layout.Context, size image.Point, radius unit.Dp) {
 	st := clip.Stroke{Path: p.Path(gtx.Ops), Width: float32(gtx.Dp(unit.Dp(2)))}
 	defer st.Op().Push(gtx.Ops).Pop()
 	paint.Fill(gtx.Ops, ColAcc)
+}
+
+// focusOutline 焦点落在此控件（Gio key tag，通常为 *widget.Clickable /
+// *widget.Editor）时沿已布局区域补描焦点环。Gio material 按钮/折叠钮
+// 不自带焦点可视，Tab 遍历一圈焦点位置不可辨（验收 B4「焦点位置肉眼
+// 可辨」）；与输入井同款口径（page_newtask.go inputWell）。
+// dims 原样返回，不影响布局。
+func focusOutline(gtx layout.Context, key event.Tag, dims layout.Dimensions, radius unit.Dp) layout.Dimensions {
+	if gtx.Focused(key) {
+		focusRing(gtx, dims.Size, radius)
+	}
+	return dims
 }
 
 // hairline 1dp 发丝线（行分隔 / 面板内线）。

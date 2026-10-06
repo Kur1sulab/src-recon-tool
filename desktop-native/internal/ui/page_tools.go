@@ -23,7 +23,7 @@ func (a *appUI) pageTools(gtx layout.Context) layout.Dimensions {
 		},
 		func(gtx layout.Context) layout.Dimensions {
 			return layout.Inset{Top: Sp4}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				return sectionLabel(a.th, "扫描模块（九个，全部本地出数）").Layout(gtx)
+				return sectionLabel(a.th, "扫描模块（十个，全部本地出数）").Layout(gtx)
 			})
 		},
 		func(gtx layout.Context) layout.Dimensions {
@@ -71,7 +71,7 @@ func (a *appUI) pageTools(gtx layout.Context) layout.Dimensions {
 									return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 										layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 											btn := mockButton(a)
-											return btn.Layout(gtx)
+											return focusOutline(gtx, &a.mockBtn, btn.Layout(gtx), R2)
 										}),
 										layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 											return layout.Inset{Left: Sp3}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -127,8 +127,10 @@ func (a *appUI) pageTools(gtx layout.Context) layout.Dimensions {
 			})
 		},
 	}
-	list := &layout.List{Axis: layout.Vertical}
-	return list.Layout(gtx, len(blocks), func(gtx layout.Context, i int) layout.Dimensions {
+	// 持久 List：滚动位置跨帧存活（app.go 滚动状态教训的同款修复件——
+	// 每帧新建 List 等于每帧清零滚动位置，验收实锤底面板不可达）。
+	a.toolsList.Axis = layout.Vertical
+	return a.toolsList.Layout(gtx, len(blocks), func(gtx layout.Context, i int) layout.Dimensions {
 		return blocks[i](gtx)
 	})
 }

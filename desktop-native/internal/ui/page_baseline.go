@@ -70,6 +70,15 @@ func (a *appUI) baseTaskRunningSel(status string) bool {
 // pollBaseline 400ms 节拍刷新（update 调用）：目标变更重读产物快照；
 // 最新基线任务的事件流逐检查点亮；运行中产物随拍刷新（引擎逐检查落盘）。
 func (a *appUI) pollBaseline() {
+	// 横条生命周期锚：成功/错误横条属于「一次输入的尝试」（成功横条带
+	// 当时目标的新任务号），目标输入变化即失效——旧目标任务号挂在别的
+	// 目标下易误读（验收 p6-cards78）。点击当帧 raw 与 baseLastInput 已
+	// 同步，不会误清刚设置的横条。
+	raw := strings.TrimSpace(a.baseTargetEd.Text())
+	if raw != a.baseLastInput {
+		a.baseLastInput = raw
+		a.baseErr, a.baseOK = "", ""
+	}
 	key := a.normalizedBaselineTarget()
 	if key == "" {
 		a.baseTarget, a.baseStates, a.baseEvents = "", nil, nil
@@ -213,7 +222,7 @@ func (a *appUI) baselineRunButton(gtx layout.Context) layout.Dimensions {
 	btn.Background = bg
 	btn.Color = fg
 	btn.CornerRadius = R2
-	return btn.Layout(gtx)
+	return focusOutline(gtx, &a.baseRunBtn, btn.Layout(gtx), R2)
 }
 
 // baselineCard 单检查分区卡：顶部结论色条（level→Bg 族）+ 状态行 +
@@ -355,11 +364,12 @@ func (a *appUI) baselineJSONToggle(gtx layout.Context, key string) layout.Dimens
 	bl := material.ButtonLayout(a.th.Theme, c)
 	bl.Background = ColS3
 	bl.CornerRadius = R2
-	return bl.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	dims := bl.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return label(a.th, txt, Fs11, ColTx2).Layout(gtx)
 		})
 	})
+	return focusOutline(gtx, c, dims, R2)
 }
 
 // baselineConclusionBlock 结论行：[level] 文本 + 生成时间。

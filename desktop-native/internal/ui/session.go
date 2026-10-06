@@ -327,7 +327,9 @@ func parseArgs(raw string) ([]string, error) {
 			return nil, fmt.Errorf("不允许的参数: %s", tk)
 		}
 		if targetFlagTokens[flagName(tk)] {
-			return nil, fmt.Errorf("目标由系统按白名单校验后注入，不允许在可选参数中指定: %s", tk)
+			// 格式卫生口径（产品铁律：界面零授权/白名单字样）：目标类旗标
+			// 一律由目标框注入，可选参数里出现同名/同义旗标按格式问题拒绝
+			return nil, fmt.Errorf("可选参数不允许指定目标类参数: %s，目标请填在「扫描目标」框", tk)
 		}
 		if !argsTokenRe.MatchString(tk) {
 			return nil, fmt.Errorf("参数含不允许的字符: %s", tk)

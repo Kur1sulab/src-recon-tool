@@ -39,7 +39,7 @@ func (a *appUI) pageResults(gtx layout.Context) layout.Dimensions {
 					btn.Background = ColErrBg
 					btn.Color = ColErr
 					btn.CornerRadius = R2
-					return btn.Layout(gtx)
+					return focusOutline(gtx, &a.stopBtn, btn.Layout(gtx), R2)
 				}),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					return layout.Inset{Left: Sp2}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -51,7 +51,7 @@ func (a *appUI) pageResults(gtx layout.Context) layout.Dimensions {
 						btn.Background = bg
 						btn.Color = fg
 						btn.CornerRadius = R2
-						return btn.Layout(gtx)
+						return focusOutline(gtx, &a.exportBtn, btn.Layout(gtx), R2)
 					})
 				}),
 			)
@@ -135,7 +135,7 @@ func (a *appUI) moduleTabRow(gtx layout.Context) layout.Dimensions {
 		bl := material.ButtonLayout(a.th.Theme, c)
 		bl.Background = bg
 		bl.CornerRadius = unit.Dp(999) // 胶囊（r-full）
-		return bl.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		dims := bl.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				l := label(a.th, m.Label, Fs11, fg)
 				if active {
@@ -144,6 +144,7 @@ func (a *appUI) moduleTabRow(gtx layout.Context) layout.Dimensions {
 				return l.Layout(gtx)
 			})
 		})
+		return focusOutline(gtx, c, dims, unit.Dp(999))
 	})
 }
 
@@ -160,11 +161,12 @@ func (a *appUI) pagerRow(gtx layout.Context, page, pages int, prev, next *widget
 			bl := material.ButtonLayout(a.th.Theme, c)
 			bl.Background = bg
 			bl.CornerRadius = R2
-			return bl.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			dims := bl.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					return label(a.th, txt, Fs11, fg).Layout(gtx)
 				})
 			})
+			return focusOutline(gtx, c, dims, R2)
 		})
 	}
 	return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
@@ -219,9 +221,10 @@ func (a *appUI) taskListTable(gtx layout.Context, rows []TaskRow) layout.Dimensi
 						bl := material.ButtonLayout(a.th.Theme, c)
 						bl.Background = colorNRGBA{A: 0}
 						bl.CornerRadius = 0
-						return bl.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						dims := bl.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 							return tableRow(gtx, a.th, body, widths, false)
 						})
+						return focusOutline(gtx, c, dims, 0)
 					}),
 				)
 			})
@@ -345,7 +348,10 @@ func resultTable(gtx layout.Context, th *Theme, rows []ResultRow, lst *layout.Li
 			return hairline(gtx, ColLn1)
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			gtx.Constraints.Max.Y = gtx.Dp(unit.Dp(300))
+			// 视口钳到 min(300dp, 可用高)：剩余空间不足 300dp 时不再把
+			// 表体越界铺到窗口外（验收实锤：过程表 28 行时底部不可达，
+			// 根因滚轮见 wheel.go——这里保证视口不溢出布局）。
+			gtx.Constraints.Max.Y = min(gtx.Constraints.Max.Y, gtx.Dp(unit.Dp(300)))
 			lst.Axis = layout.Vertical
 			return lst.Layout(gtx, len(rows), func(gtx layout.Context, i int) layout.Dimensions {
 				gtx.Constraints.Min.X = gtx.Constraints.Max.X
