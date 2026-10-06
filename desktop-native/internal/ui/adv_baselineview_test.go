@@ -27,7 +27,9 @@ func TestAdvUIBrokenJSONStates(t *testing.T) {
 		"双JSON粘包":  `{"check":"a"}{"check":"b"}`,
 		"裸NaN":     `{"check":"a","data":{"x":NaN}}`,
 		"注释尾随":     `{"check":"a"} /* trailing */`,
-		"唯一键类型冲突": `{"check":"a","check":123}`,
+		// F6（终修轮）后 check 字段不再解析绑定，键冲突样例换到仍绑定的
+		// target 字段——坏 JSON 检测契约保持在仍被解析的字段上。
+		"唯一键类型冲突": `{"target":"a","target":123}`,
 	}
 	for name, body := range cases {
 		repoRoot := t.TempDir()
@@ -126,10 +128,10 @@ func TestAdvUIForgedFields(t *testing.T) {
 	if st.Res.Error != "" {
 		t.Fatalf("合法 JSON 不应判解析失败: %s", st.Res.Error)
 	}
-	// check 错位：文件名 secheaders.json 内容自称 webfiles——当前实现信任内容
-	// （槽位 Key 不变，结论行用槽位 Label，错位仅影响 Res.Check 展示字段）。
-	if st.Res.Check != "webfiles" || st.Key != "secheaders" {
-		t.Errorf("check 错位行为: Key=%s Res.Check=%s", st.Key, st.Res.Check)
+	// check 槽位为准（F6 已修·终修轮）：内容 check 字段不再覆盖 Res.Check——
+	// 文件名 secheaders.json 自称 webfiles 时以槽位文件名为准，防错位展示。
+	if st.Res.Check != "secheaders" || st.Key != "secheaders" {
+		t.Errorf("check 槽位为准: Key=%s Res.Check=%s", st.Key, st.Res.Check)
 	}
 	// 未知 level → 默认配色（不崩溃、不误染 ok/fail 色）
 	if bg, fg := baselineLevelColor("pwned"); bg != ColIdleBg || fg != ColTx2 {
@@ -177,19 +179,22 @@ func TestAdvUIForgedFields(t *testing.T) {
 
 // 脆弱点（对抗轮发现 F6）：risks 数组里混入一个裸字符串元素——字段级错型，
 // 却令整个包络 json.Unmarshal 失败 → 全检查落「产物解析失败」。方向是
-// fail-closed（不编造结论），但违背本文件「类型不符按零值收纳」的注释契约，
-// 一条错型风险拖死整卡。当前行为断言在案；修复时应改为跳过错型元素。
-func TestAdvUIRisksWrongTypedElementNukesEnvelope(t *testing.T) {
+// F6 已修（终修轮）：risks 逐项解包，错型元素跳过不再毒化整个包络——
+// 合法字段（结论/风险）保留，语法级坏 JSON 仍落「产物解析失败」失败态。
+func TestAdvUIRisksWrongTypedElementSkipped(t *testing.T) {
 	repoRoot := t.TempDir()
 	writeBaselineFixture(t, repoRoot, "example.com", "secheaders",
 		`{"check":"secheaders","conclusion":{"level":"ok","text":"fine"},"risks":["not-an-object"]}`)
 	states := LoadBaselineProducts(repoRoot, "example.com")
 	st := states[0]
-	if !strings.Contains(st.Res.Error, "产物解析失败") {
-		t.Errorf("当前实现：裸字符串风险元素应致全包络解析失败（F6 在案）, Error=%q", st.Res.Error)
+	if st.Res.Error != "" {
+		t.Errorf("错型风险元素应逐项跳过而非整包络解析失败（F6 回归）, Error=%q", st.Res.Error)
 	}
-	if st.Res.ConclusionText != "" {
-		t.Error("解析失败态不得保留结论文本")
+	if st.Res.ConclusionText != "fine" {
+		t.Errorf("合法结论文本应保留, 得 %q", st.Res.ConclusionText)
+	}
+	if len(st.Res.Risks) != 0 {
+		t.Errorf("错型元素应被跳过不编造: %+v", st.Res.Risks)
 	}
 }
 

@@ -95,31 +95,38 @@ func LoadBaselineProducts(repoRoot, target string) []BaselineCheckState {
 
 // parseBaselineResult 解析冻结包络。字段缺失/类型不符按零值收纳，坏 JSON
 // 落 Error 失败态——绝不用猜测值补齐（空态与失败态是两种真实状态）。
+// F6（终修轮）：risks 先解 []json.RawMessage 逐项转换、错型元素跳过——此前
+// 混入一个裸字符串元素会毒化整个包络（json.Unmarshal 整体失败 → 结论/风险
+// 全灭，违背「类型不符按零值收纳」自述契约）。Res.Check 以槽位文件名为准，
+// 不信任内容 check 字段（文件名 secheaders.json 自称 webfiles 的错位展示）。
 func parseBaselineResult(check string, body []byte) BaselineResult {
 	res := BaselineResult{Check: check, RawJSON: string(body)}
 	var env struct {
-		Check      string `json:"check"`
-		Target     string `json:"target"`
-		URL        string `json:"url"`
+		Target      string `json:"target"`
+		URL         string `json:"url"`
 		GeneratedAt string `json:"generated_at"`
-		Conclusion struct {
+		Conclusion  struct {
 			Level string `json:"level"`
 			Text  string `json:"text"`
 		} `json:"conclusion"`
-		Risks []struct {
-			Level  string `json:"level"`
-			Title  string `json:"title"`
-			Detail string `json:"detail"`
-		} `json:"risks"`
-		Data  map[string]any `json:"data"`
-		Error string         `json:"error"`
+		Risks []json.RawMessage `json:"risks"`
+		Data  map[string]any    `json:"data"`
+		Error string            `json:"error"`
 	}
 	if err := json.Unmarshal(body, &env); err != nil {
 		res.Error = "产物解析失败: " + err.Error()
 		return res
 	}
-	if env.Check != "" {
-		res.Check = env.Check
+	for _, raw := range env.Risks {
+		var r struct {
+			Level  string `json:"level"`
+			Title  string `json:"title"`
+			Detail string `json:"detail"`
+		}
+		if err := json.Unmarshal(raw, &r); err != nil {
+			continue // 错型元素跳过（不编造零值结论）
+		}
+		res.Risks = append(res.Risks, BaselineRisk{Level: r.Level, Title: r.Title, Detail: r.Detail})
 	}
 	res.Target = env.Target
 	res.URL = env.URL
@@ -127,9 +134,6 @@ func parseBaselineResult(check string, body []byte) BaselineResult {
 	res.ConclusionLevel = env.Conclusion.Level
 	res.ConclusionText = env.Conclusion.Text
 	res.Error = env.Error
-	for _, r := range env.Risks {
-		res.Risks = append(res.Risks, BaselineRisk{Level: r.Level, Title: r.Title, Detail: r.Detail})
-	}
 	// data.summary 引擎侧写的是 []string，JSON 读回来是 []any——只收字符串项
 	if sums, ok := env.Data["summary"].([]any); ok {
 		for _, s := range sums {
