@@ -30,7 +30,7 @@ func TestAdv2CreateTaskMaliciousTargets(t *testing.T) {
 		{"file 内网 DVWA", "file://192.168.88.130/dvwa", "paths"},
 		{"file 本机 mock 端口", "file://127.0.0.1:8799/real", "api"},
 		{"file 本地文件", "file:///C:/Windows/win.ini", "fingerprint"},
-		{"file 管理共享", "file://localhost/c$/Windows", "jsintel"},
+		{"file 管理共享", "file://localhost/c$/Windows", "api"},
 		{"smb UNC 路径", `\\192.168.88.130\dvwa`, "all"},
 		// 超长串
 		{"恰好 200 字符垃圾", long200, "all"},
@@ -79,7 +79,7 @@ func TestAdv2CreateTaskMaliciousTargets(t *testing.T) {
 		{"subdomain 带端口", "xycovo.com:443", "subdomain"},
 		{"reverse 域名", "xycovo.com", "reverse"},
 		{"all 带 URL", "http://xycovo.com", "all"},
-		{"portscan 带 URL", "http://xycovo.com", "portscan"},
+		{"reverse 带 URL", "http://xycovo.com", "reverse"},
 	}
 	before := len(s.Store.List())
 	for _, c := range reject {
@@ -99,10 +99,10 @@ func TestAdv2CreateTaskMaliciousTargets(t *testing.T) {
 	}{
 		{"仿冒后缀", "xycovo.com.evil.com", "all"},
 		{"仿冒前缀", "exycovo.com", "all"},
-		{"环回缩写", "127.1", "portscan"},
-		{"环回整数", "2130706433", "portscan"},
-		{"环回八进制", "0177.0.0.1", "portscan"},
-		{"环回十六进制带端口", "0x7f.0.0.1:8799", "portscan"},
+		{"环回缩写", "127.1", "all"},
+		{"环回整数", "2130706433", "all"},
+		{"环回八进制", "0177.0.0.1", "all"},
+		{"环回十六进制带端口", "0x7f.0.0.1:8799", "all"},
 		{"mock 错端口", "127.0.0.1:8798", "api"},
 		{"mock 端口补零", "127.0.0.1:08799", "api"},
 		{"裸 localhost", "localhost", "api"},
@@ -130,13 +130,13 @@ func TestAdv2CreateTaskAcceptMatrix(t *testing.T) {
 		// 卫生缺口已消除，wantTarget 由原始串改为归一形态）。
 		{"子域单尾点", "xycovo.com.", "subdomain", "xycovo.com"},
 		{"子域双尾点(白名单归一等价放行,入库为归一形态)", "xycovo.com..", "subdomain", "xycovo.com"},
-		{"端口扫 IP", "47.100.49.228", "portscan", "47.100.49.228"},
+		{"all 裸 IP", "47.100.49.228", "all", "47.100.49.228"},
 		{"IP 反查", "47.100.49.228", "reverse", "47.100.49.228"},
 		{"全模块域名", "xycovo.com", "all", "xycovo.com"},
 		{"api 补协议", "127.0.0.1:8799", "api", "http://127.0.0.1:8799"},
 		{"api 完整 URL", "http://127.0.0.1:8799/real", "paths", "http://127.0.0.1:8799/real"},
 		{"指纹大写协议头", "HTTP://127.0.0.1:8799/real", "fingerprint", "HTTP://127.0.0.1:8799/real"},
-		{"portscan host:port 白名单内", "127.0.0.1:8799", "portscan", "127.0.0.1:8799"},
+		{"all host:port 白名单内", "127.0.0.1:8799", "all", "127.0.0.1:8799"},
 		// 对抗记录 INFO：前/后置空白族（\v \f NBSP U+0085 等）被 CreateTask 的
 		// TrimSpace 吞掉后放行，入库为裁剪后目标——与 whitelist「控制字符一律拒」
 		// 的注释口径不一致；无越名单风险（归一结果仍是名单内主机），钉住现状。
@@ -170,25 +170,25 @@ func TestAdv2CreateTaskArgsPoison(t *testing.T) {
 	}{
 		{"argparse 缩写覆盖目标", "--ur http://10.0.0.5/x", "api"},
 		{"缩写=形态", "--dom=evil.com", "subdomain"},
-		{"短目标旗标", "-t 10.0.0.5", "portscan"},
+		{"短目标旗标", "-t 10.0.0.5", "all"},
 		{"progress-file 劫持", "--progress-file=C:\\x\\evil.jsonl", "paths"},
 		{"progress-file 下划线变体", "--progress_file C:\\x\\evil.jsonl", "paths"},
 		{"帮助旗标", "-h", "all"},
-		{"命令注入分号", "--ports 80;id", "portscan"},
-		{"命令替换 $()", "--ports $(id)", "portscan"},
-		{"反引号", "--ports `id`", "portscan"},
-		{"管道符", "--ports 80|id", "portscan"},
-		{"超 8 段", "--ports 1 --timeout 2 --workers 3 --max-files 4 --ports 5 --timeout 6 --workers 7 --max-files 8 --ports 9", "portscan"},
-		{"单段超长", "--ports " + strings.Repeat("9", 250), "portscan"},
-		{"大写旗标不在精确白名单", "--PORTS 80", "portscan"},
-		{"取值位注入旗标", "--ports -u http://10.0.0.5", "portscan"},
-		{"=值以 - 开头", "--ports=-1", "portscan"},
-		{"跨模块旗标", "--verify", "jsintel"},
+		{"命令注入分号", "--ports 80;id", "baseline"},
+		{"命令替换 $()", "--ports $(id)", "baseline"},
+		{"反引号", "--ports `id`", "baseline"},
+		{"管道符", "--ports 80|id", "baseline"},
+		{"超 8 段", "--checks 1 --checks 2 --checks 3 --checks 4 --checks 5 --checks 6 --checks 7 --checks 8 --checks 9", "baseline"},
+		{"单段超长", "--checks " + strings.Repeat("9", 250), "baseline"},
+		{"大写旗标不在精确白名单", "--CHECKS secheaders", "baseline"},
+		{"取值位注入旗标", "--checks -u http://10.0.0.5", "baseline"},
+		{"=值以 - 开头", "--checks=-secheaders", "baseline"},
+		{"跨模块旗标", "--verify", "icp"},
+		{"跨模块取值旗标", "--ports 80", "baseline"},
 		{"all 无可选项", "--workers 4", "all"},
-		// 终修轮 P4 收口：取值旗标挂尾（无值收尾）此前被 Go 层放行、到
-		// Python argparse 才报 "expected one argument"——ValidateExtraArgs
-		// 收尾 expectValue 即报错后，改在 Go 层拒绝。
-		{"取值旗标挂尾", "--ports", "portscan"},
+		// 终修轮 P4 收口：取值旗标挂尾（无值收尾）在 Go 层拒绝
+		//（ValidateExtraArgs 收尾 expectValue 即报错）。
+		{"取值旗标挂尾", "--checks", "baseline"},
 	}
 	for _, c := range reject {
 		if _, err := s.CreateTask("127.0.0.1:8799", c.cmd, c.args); err == nil {
@@ -199,15 +199,14 @@ func TestAdv2CreateTaskArgsPoison(t *testing.T) {
 	ok := []struct {
 		name, args, cmd string
 	}{
-		{"端口段", "--ports 1-1000 --timeout 3 --workers 50", "portscan"},
-		{"等号取值", "--ports=80,443", "portscan"},
-		{"jsintel 双旗标", "--max-files 20 --workers 4", "jsintel"},
 		{"子域验证开关", "--verify", "subdomain"},
+		{"checks 逗号清单", "--checks secheaders,webfiles", "baseline"},
+		{"checks 等号取值", "--checks=sslchain", "baseline"},
 	}
 	for _, c := range ok {
 		target := "127.0.0.1:8799"
-		if c.cmd == "subdomain" {
-			target = "xycovo.com" // 子域模块只收裸域名（normalizeTarget 形态闸）
+		if c.cmd == "subdomain" || c.cmd == "baseline" {
+			target = "xycovo.com" // 域名形态模块只收裸域名（normalizeTarget 形态闸）
 		}
 		id, err := s.CreateTask(target, c.cmd, c.args)
 		if err != nil {
@@ -215,6 +214,12 @@ func TestAdv2CreateTaskArgsPoison(t *testing.T) {
 		}
 		if got, _ := s.Store.Get(id); got.Args != c.args {
 			t.Fatalf("[%s] 入库参数=%q, 期望 %q", c.name, got.Args, c.args)
+		}
+	}
+	// 退役模块（jsintel/portscan）在 CmdAllowed 层就地拒绝，参数内容不再参与
+	for _, cmd := range []string{"jsintel", "portscan"} {
+		if _, err := s.CreateTask("xycovo.com", cmd, ""); err == nil {
+			t.Fatalf("退役模块 %s 应拒绝", cmd)
 		}
 	}
 }
@@ -252,26 +257,17 @@ func TestAdv2SettingsPoison(t *testing.T) {
 		if err := writeSettingsFile(dir, c.body); err != nil {
 			t.Fatalf("[%s] %v", c.name, err)
 		}
-		st, err := LoadSettings(dir) // 任何毒数据都不得报错、不得 panic
-		if err != nil {
+		if _, err := LoadSettings(dir); err != nil { // 任何毒数据都不得报错、不得 panic
 			t.Fatalf("[%s] LoadSettings 不应报错: %v", c.name, err)
 		}
-		if strings.Contains(c.name, "UNC") {
-			continue // UNC 值不再下探执行类调用：零外网纪律（执行面为已记账的 by-design 污点）
-		}
+		// 第 2 步直调重写后 NewSession 不再消费 settings（引擎内置、无路径
+		// 配置），毒值无从下探任何执行类调用——开库不崩即验收。
 		repo := t.TempDir()
 		if err := makeStubRepo(repo); err != nil {
 			t.Fatal(err)
 		}
-		sess, err := NewSession(repo, dir, `C:\fake\python.exe`) // 构造期不执行任何进程
-		if err != nil {
+		if _, err := NewSession(repo, dir); err != nil {
 			t.Fatalf("[%s] NewSession 不应失败: %v", c.name, err)
-		}
-		// 值没被毒坏的（类型错兜底零值）才做解析探针；探针只做 os.Stat，不执行
-		if st.PythonPath == "" {
-			if p, rerr := sess.Runner.ResolvePython(); rerr == nil && p == "" {
-				t.Fatalf("[%s] 解析结果异常", c.name)
-			}
 		}
 	}
 }

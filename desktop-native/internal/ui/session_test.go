@@ -1,33 +1,26 @@
 package ui
 
 import (
-	"os"
-	"os/exec"
-	"path/filepath"
+	"context"
 	"testing"
 	"time"
 
 	"recon-native/internal/store"
 )
 
-// newTestSession 造一个可用测试会话：repoRoot 放假 recon.py 桩，
-// Command 接缝换成假进程（立即退出、零外网），Python 用假路径 + 假 LookPath 直通。
+// newTestSession 造一个可用测试会话：八模块全注入阻塞桩（阻塞到 Stop 取消，
+// 零外网零落盘），真实任务库落在临时目录。
 func newTestSession(t *testing.T) *Session {
 	t.Helper()
-	repoRoot := t.TempDir()
-	p := filepath.Join(repoRoot, "src", "recon.py")
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(p, []byte("# stub\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	s, err := NewSession(repoRoot, t.TempDir(), `C:\fake\python.exe`)
+	s, err := NewSession(t.TempDir(), t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.Runner.Command = func(name string, args ...string) *exec.Cmd {
-		return exec.Command("cmd", "/c", "exit", "/b", "0")
+	for _, c := range []string{"all", "paths", "api", "fingerprint", "subdomain", "reverse", "icp", "baseline"} {
+		s.Runner.SetModuleFunc(c, func(ctx context.Context, _, _ string, _ []string) error {
+			<-ctx.Done()
+			return ctx.Err()
+		})
 	}
 	return s
 }
@@ -118,7 +111,7 @@ func TestStopTaskIdempotent(t *testing.T) {
 	}
 }
 
-func TestModulesNineAndUnique(t *testing.T) {
+func TestModulesEightAndUnique(t *testing.T) {
 	seen := map[string]bool{}
 	for _, m := range Modules {
 		if seen[m.Key] {
@@ -129,10 +122,23 @@ func TestModulesNineAndUnique(t *testing.T) {
 			t.Fatalf("模块 %q 缺中文名或说明", m.Key)
 		}
 	}
-	// 基线轮（2026-10-06）：Modules 表新增第 10 个成员 baseline（域名暴露面
-	// 基线体检，recon-go 专属子命令），结果页 tab 与新建任务页网格随之派生。
-	if len(Modules) != 10 {
-		t.Fatalf("应有 10 个模块，得 %d", len(Modules))
+	// 全集成轮（2026-10-07）：Modules 表收缩为八模块（jsintel/portscan 随
+	// 全集成退役，不在表内=不可新建、无 tab），结果页 tab 与新建任务页网格随之派生。
+	if len(Modules) != 8 {
+		t.Fatalf("应有 8 个模块，得 %d", len(Modules))
+	}
+	if seen["jsintel"] || seen["portscan"] {
+		t.Fatal("退役模块不得留在 Modules 表")
+	}
+}
+
+// 历史任务照常展示：退役模块的中文名映射保留（老任务列表/过程行不回退英文键）。
+func TestModuleLabelRetiredModulesStillLabeled(t *testing.T) {
+	if got := moduleLabel("jsintel"); got != "JS 情报" {
+		t.Fatalf("moduleLabel(jsintel) = %q, 期望「JS 情报」", got)
+	}
+	if got := moduleLabel("portscan"); got != "端口扫描" {
+		t.Fatalf("moduleLabel(portscan) = %q, 期望「端口扫描」", got)
 	}
 }
 

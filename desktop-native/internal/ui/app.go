@@ -3,8 +3,6 @@ package ui
 import (
 	"fmt"
 	"image"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -36,61 +34,24 @@ const (
 
 var pageNames = []string{"仪表盘", "新建任务", "结果", "工具", "设置", "暴露面"}
 
-// envInfo 环境自检快照（后台 goroutine 采样，界面读快照）。
+// envInfo 环境探测快照（后台 goroutine 采样，界面读快照）。第 2 步直调
+// 重写后引擎内置于程序本体，仅剩本机 mock 靶站可达性一项探测。
 type envInfo struct {
-	mu       sync.Mutex
-	pyPath   string
-	pyVer    string
-	found    bool
-	depsOK   bool
-	mockOK   bool
-	probed   bool
-	mockPro  bool
-	goPath   string // recon-go.exe 探测路径（空=缺）
-	goInfo   string // recon-go -h 首行
-	goFound  bool
-	goProbed bool // Go 引擎探测是否已回（未回=载入中间态，页面显「检测中…」）
+	mu      sync.Mutex
+	mockOK  bool
+	mockPro bool
 }
 
-func (e *envInfo) snapshot() (path, ver string, found, deps, mock, probed, mockPro bool) {
+func (e *envInfo) snapshot() (mock, probed bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return e.pyPath, e.pyVer, e.found, e.depsOK, e.mockOK, e.probed, e.mockPro
-}
-
-func (e *envInfo) set(path, ver string, found, deps, mock bool) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.pyPath, e.pyVer, e.found, e.depsOK, e.mockOK = path, ver, found, deps, mock
-	e.probed = true
-}
-
-// setPy 设置页手动自检回写：只动 Python 侧字段，不覆盖 mock 探测结果。
-func (e *envInfo) setPy(path, ver string, found, deps bool) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.pyPath, e.pyVer, e.found, e.depsOK = path, ver, found, deps
-	e.probed = true
+	return e.mockOK, e.mockPro
 }
 
 func (e *envInfo) setMock(ok bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.mockOK, e.mockPro = ok, true
-}
-
-// goSnapshot Go 引擎探测快照（后台自检采样 + 设置页自检回写）。
-// probed=false = 后台自检未回的中间态（页面显「检测中…」，不误报「未找到」）。
-func (e *envInfo) goSnapshot() (path, info string, found, probed bool) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	return e.goPath, e.goInfo, e.goFound, e.goProbed
-}
-
-func (e *envInfo) setGo(path, info string, found bool) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.goPath, e.goInfo, e.goFound, e.goProbed = path, info, found, true
 }
 
 // appUI 主界面状态。全部状态只在窗口事件循环（单 goroutine）里读写，
@@ -141,20 +102,8 @@ type appUI struct {
 	mockState string
 	mockBusy  bool // 探测在后台跑（曾同步 HTTP 800ms 冻住事件循环）
 
-	// 设置页
-	pyEd        widget.Editor
-	checkBtn    widget.Clickable
-	saveBtn     widget.Clickable
-	pyResult    string
-	pyResultCol colorNRGBA // 回执成败分档色（保存失败显错误红）
-	pyProbeBusy bool       // 自检在后台跑（事件循环不再同步起子进程冻结 UI）
-	goEd        widget.Editor
-	goCheckBtn  widget.Clickable
-	goSaveBtn   widget.Clickable
-	goResult    string
-	goResultCol colorNRGBA
-	goProbeBusy bool
-	probeDone   chan probeResult // 后台自检/探测回执 → 事件循环（缓冲 1）
+	// 设置页（第 2 步后仅剩输出目录/关于两卡，无路径配置项）
+	probeDone chan probeResult // mock 探测回执 → 事件循环（缓冲 1）
 
 	// 暴露面仪表盘页（第六页）
 	baseTargetEd  widget.Editor
@@ -190,26 +139,16 @@ type exportResult struct {
 	err        error
 }
 
-// probeResult 后台自检/探测的回执（设置页 Python/Go 自检、工具页 mock 探测）。
+// probeResult 后台探测的回执（工具页 mock 靶站探测）。
 type probeResult struct {
-	kind   string // "py" / "go" / "mock"
-	path   string
-	ver    string
-	found  bool
-	deps   bool
-	info   string
+	kind   string // "mock"
 	mockOK bool
 }
 
 // Run 启动主窗口（阻塞至窗口关闭）。
 func Run() error {
 	dataDir := dataDirPath()
-	for _, sub := range []string{"logs", "progress"} {
-		if err := os.MkdirAll(filepath.Join(dataDir, sub), 0o755); err != nil {
-			return fmt.Errorf("初始化数据目录失败：%w", err)
-		}
-	}
-	sess, err := NewSession(findRepoRoot(), dataDir, os.Getenv("RECON_PYTHON"))
+	sess, err := NewSession(findRepoRoot(), dataDir)
 	if err != nil {
 		return err
 	}
@@ -221,19 +160,10 @@ func Run() error {
 	a := newAppUI(sess)
 	a.th = NewTheme()
 	a.win = w
-	// 环境自检放后台：不挡首帧。runner 先捕获局部变量再进 goroutine——
-	// 此刻事件循环尚未起跑（SetPythonPath 换装 Runner 字段只能发生在
-	// FrameEvent 处理里），goroutine 持有的是不可变快照，与字段写无
-	// 并发，消掉审计 low-2 指出的无同步读写竞争面。自检完成后主动
-	// Invalidate：后台数据变化不会自动触发帧（见下方节拍 goroutine 注）。
-	runner := a.sess.Runner
+	// mock 靶站探测放后台：不挡首帧。完成后主动 Invalidate——后台数据
+	// 变化不会自动触发帧（见下方节拍 goroutine 注）。
 	go func() {
-		py, _ := runner.ResolvePython()
-		found, ver, deps := runner.ProbePython()
-		a.env.set(py, ver, found, deps, mockReachable())
-		goP, _ := runner.ResolveGoEngine()
-		goFound, goInfo := runner.ProbeGoEngine()
-		a.env.setGo(goP, goInfo, goFound)
+		a.env.setMock(mockReachable())
 		w.Invalidate()
 	}()
 
@@ -289,10 +219,6 @@ func newAppUI(sess *Session) *appUI {
 	a.listPage, a.rowsPage = 1, 1 // 分页条初值「第 1 页」（零值起步会显示第 0 页）
 	a.targetEd.SingleLine = true
 	a.argsEd.SingleLine = true
-	a.pyEd.SingleLine = true
-	a.pyEd.SetText(a.sess.resolvePythonOrEmpty())
-	a.goEd.SingleLine = true
-	a.goEd.SetText(a.sess.resolveGoEngineOrEmpty())
 	a.baseTargetEd.SingleLine = true
 	a.baseJSONOpen = map[string]bool{}
 	a.baseJSONBtns = map[string]*widget.Clickable{}
@@ -352,30 +278,11 @@ func (a *appUI) update(gtx layout.Context) {
 	default:
 	}
 
-	// 后台自检/探测回执（非阻塞收一次；导出钮同款 channel 模式——
-	// 自检曾在 UI 事件循环里同步起子进程，Python 两连发最坏 ~20s 整窗冻结）
+	// 后台探测回执（非阻塞收一次；导出钮同款 channel 模式——同步 HTTP
+	// 探测曾冻住事件循环，与历史自检修法同款）
 	select {
 	case r := <-a.probeDone:
 		switch r.kind {
-		case "py":
-			a.pyProbeBusy = false
-			a.env.setPy(r.path, r.ver, r.found, r.deps)
-			switch {
-			case !r.found:
-				a.pyResult, a.pyResultCol = "未找到可用 Python——填绝对路径后点「保存并生效」", ColErr
-			case !r.deps:
-				a.pyResult, a.pyResultCol = r.ver+"；缺少依赖 requests/yaml，先 pip install -r requirements.txt", ColWarn
-			default:
-				a.pyResult, a.pyResultCol = r.ver+"；依赖齐全，可以扫描", ColOk
-			}
-		case "go":
-			a.goProbeBusy = false
-			a.env.setGo(r.path, r.info, r.found)
-			if r.found {
-				a.goResult, a.goResultCol = r.info+"；Go 引擎可用，基线检查可以跑", ColOk
-			} else {
-				a.goResult, a.goResultCol = goEngineMissingHint(), ColWarn
-			}
 		case "mock":
 			a.mockBusy = false
 			a.env.setMock(r.mockOK)
@@ -458,7 +365,7 @@ func (a *appUI) update(gtx layout.Context) {
 	}
 
 	// 工具页：mock 靶站探测（127.0.0.1 授权目标；后台跑——HTTP 探测 800ms
-	// 同步跑会冻住事件循环，与设置页自检同款修法）
+	// 同步跑会冻住事件循环）
 	if a.mockBtn.Clicked(gtx) && !a.mockBusy {
 		a.mockBusy = true
 		a.mockState = "探测中…"
@@ -469,52 +376,6 @@ func (a *appUI) update(gtx layout.Context) {
 				win.Invalidate()
 			}
 		}()
-	}
-
-	// 设置页：自检 / 保存解释器路径（自检后台跑：ProbePython 版本+依赖两连
-	// 发、单发上限 10s，同步跑最坏 ~20s 整窗冻结且无反馈）
-	if a.checkBtn.Clicked(gtx) && !a.pyProbeBusy {
-		a.pyProbeBusy = true
-		a.pyResult, a.pyResultCol = "自检中…", ColTx3
-		runner := a.sess.Runner
-		done, win := a.probeDone, a.win
-		go func() {
-			found, ver, deps := runner.ProbePython()
-			py, _ := runner.ResolvePython()
-			done <- probeResult{kind: "py", path: py, ver: ver, found: found, deps: deps}
-			if win != nil {
-				win.Invalidate()
-			}
-		}()
-	}
-	if a.saveBtn.Clicked(gtx) {
-		if err := a.sess.SetPythonPath(a.pyEd.Text()); err != nil {
-			a.pyResult, a.pyResultCol = err.Error(), ColErr
-		} else {
-			a.pyResult, a.pyResultCol = "已保存并生效（重启后仍生效）："+a.pyEd.Text(), ColOk
-		}
-	}
-	// 设置页：Go 引擎（基线检查执行器）自检 / 保存（自检同样后台跑）
-	if a.goCheckBtn.Clicked(gtx) && !a.goProbeBusy {
-		a.goProbeBusy = true
-		a.goResult, a.goResultCol = "自检中…", ColTx3
-		runner := a.sess.Runner
-		done, win := a.probeDone, a.win
-		go func() {
-			found, info := runner.ProbeGoEngine()
-			p, _ := runner.ResolveGoEngine()
-			done <- probeResult{kind: "go", path: p, info: info, found: found}
-			if win != nil {
-				win.Invalidate()
-			}
-		}()
-	}
-	if a.goSaveBtn.Clicked(gtx) {
-		if err := a.sess.SetGoEnginePath(a.goEd.Text()); err != nil {
-			a.goResult, a.goResultCol = err.Error(), ColErr
-		} else {
-			a.goResult, a.goResultCol = "已保存并生效（重启后仍生效）："+a.goEd.Text(), ColOk
-		}
 	}
 
 	// 暴露面仪表盘：一键跑全部 8 项检查（页面不起进程，全走既有

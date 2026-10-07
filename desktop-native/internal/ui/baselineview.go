@@ -211,7 +211,7 @@ func baselineLevelColor(level string) (bg, fg colorNRGBA) {
 // baselineEventStates 从基线任务的进度事件提取每检查的运行态：
 // map[检查名]running|done|fail|skipped（同名事件取最后一条；任务级
 // module=baseline 与 pipeline 不入表）。事件 module 名即检查名
-//（引擎内层 start/done|fail|skipped 契约，§5.9）。
+// （引擎内层 start/done|fail|skipped 契约，§5.9）。
 func baselineEventStates(evs []store.ProgressEvent) map[string]string {
 	known := map[string]bool{}
 	for _, m := range baselineChecks {
@@ -298,7 +298,7 @@ func baselinePhaseLabel(phase string) string {
 // baselinePhaseColor 相位 → LED/文字色（浅色主题既有常量，Idle 不作文字色）。
 // level 取结论等级（conclusion 相位用）：LED 与卡顶色条/相位文字同色相——
 // 曾恒绿，fail 级结论卡呈「绿点+红条红字」双信号。skipped 归警示橙族
-//（预算耗尽不是故障，曾与 failed 同柄分红、同卡橙条红点打架）。
+// （预算耗尽不是故障，曾与 failed 同柄分红、同卡橙条红点打架）。
 func baselinePhaseColor(phase, level string) colorNRGBA {
 	switch phase {
 	case "running":

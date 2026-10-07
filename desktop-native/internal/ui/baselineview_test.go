@@ -180,7 +180,7 @@ func TestModuleLabelsBaseline(t *testing.T) {
 			t.Fatalf("moduleLabel(%s) = %q, 期望 %q", k, moduleLabel(k), w)
 		}
 	}
-	// tab 自动派生：含「全部」+ 10 模块
+	// tab 自动派生：含「全部」+ 8 模块（jsintel/portscan 退役后随之收缩）
 	tabs := tabKeys()
 	if len(tabs) != len(Modules)+1 {
 		t.Fatalf("tab 数 = %d, 期望 %d", len(tabs), len(Modules)+1)

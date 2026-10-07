@@ -9,10 +9,10 @@ import (
 
 // Settings 桌面端设置（settings.json，与任务库同目录）。
 // 只存用户显式选择；不存任何凭据类内容。
-type Settings struct {
-	PythonPath   string `json:"python_path,omitempty"`
-	GoEnginePath string `json:"go_engine_path,omitempty"` // recon-go.exe（基线检查执行器）
-}
+// 终修轮：PythonPath/GoEnginePath 退役幽灵字段移除——直调重写后引擎内置，
+// 无解释器/外部引擎路径可配（该二子进程均已退役）。旧 settings.json 里的
+// python_path/go_engine_path 键读入时忽略、下次保存自然排出。
+type Settings struct{}
 
 // settingsFile 设置文件名。
 const settingsFile = "settings.json"

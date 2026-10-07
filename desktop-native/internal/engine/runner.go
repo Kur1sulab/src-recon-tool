@@ -1,80 +1,125 @@
-// Package engine 管理 recon.py 子进程：起停、进程树终止、进度 JSONL 游标解析、
-// 原始日志落盘。Go 层是壳，扫描引擎仍是既有 Python 流水线（python src/recon.py <子命令>）。
+// Package engine：桌面进程内直调执行器。第 2 步（直调重写）后本包不再
+// 起任何扫描子进程——八模块逐一映射 engine-go 公开函数（子进程壳、
+// taskkill 树杀、Job Object、进度 JSONL Tailer、ResolvePython/ResolveGoEngine
+// 均随第二步整体退役）。进度事件即 store.ProgressEvent，经 Sink 直达任务库
+// 内存切片；Stop = context 取消，取消沿引擎 RunContext→FetchOpt.Ctx 贯穿。
 package engine
 
 import (
-	"bytes"
+	"context"
 	"errors"
 	"fmt"
-	"io"
+	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Kur1sulab/src-recon-tool/engine-go/apiunauth"
+	"github.com/Kur1sulab/src-recon-tool/engine-go/baseline"
+	"github.com/Kur1sulab/src-recon-tool/engine-go/cli"
+	"github.com/Kur1sulab/src-recon-tool/engine-go/fingerprint"
+	"github.com/Kur1sulab/src-recon-tool/engine-go/icp"
+	"github.com/Kur1sulab/src-recon-tool/engine-go/paths"
+	"github.com/Kur1sulab/src-recon-tool/engine-go/reverseip"
+	"github.com/Kur1sulab/src-recon-tool/engine-go/subdomain"
 
 	"recon-native/internal/store"
 	"recon-native/internal/whitelist"
 )
 
-// cmdSet 允许下发的子命令白名单（与桌面端模块一一对应）。baseline 是第十个
-// 成员：域名暴露面基线检查，执行器为 recon-go.exe（第二子进程，非 recon.py
-// 对齐项——recon.py 无 baseline 子命令，桌面按子命令选引擎分支）。
+// cmdSet 允许下发的模块白名单（八模块）。jsintel/portscan 随全集成退役
+// （engine-go 未移植该两模块，桌面 all 流程里对应步骤发 skipped 事件）；
+// 历史任务照常展示（ui.moduleLabel 保留退役模块中文映射）。
 var cmdSet = map[string]bool{
-	"all": true, "paths": true, "api": true, "fingerprint": true, "jsintel": true,
-	"portscan": true, "subdomain": true, "reverse": true, "icp": true,
-	"baseline": true,
+	"all": true, "paths": true, "api": true, "fingerprint": true,
+	"subdomain": true, "reverse": true, "icp": true, "baseline": true,
 }
 
-// Sink 引擎向任务库回写状态/进度的通道（server 侧实现，测试侧用假件）。
+// Sink 引擎向任务库回写状态/进度的通道（session 侧实现，测试侧用假件）。
 type Sink interface {
 	AppendProgress(taskID string, evs []store.ProgressEvent)
 	SetStatus(taskID, status string, exitCode *int)
 }
 
-// Runner 管理全部运行中的扫描进程。
+// ModuleFunc 单模块执行函数（进程内直调的模块表注入接缝）：生产用内置实现，
+// 测试注入桩函数测事件序列/终态/Stop 幂等/取消竞态。实现收到与 Start 相同的
+// 归一化 target 与 extra；返回错误 = 模块失败（fail 事件 + 终态 fail）。
+type ModuleFunc func(ctx context.Context, id, target string, extra []string) error
+
+// inprocJob 一个运行中任务的进程内作业句柄。
+type inprocJob struct {
+	cancel context.CancelFunc
+	done   chan struct{} // job goroutine 收尾完成时关闭（同步点）
+	cmd    string
+}
+
+// Runner 管理全部运行中的扫描任务（进程内直调，零子进程）。
 type Runner struct {
-	mu         sync.Mutex
-	repoRoot   string
-	dataDir    string
-	pythonPath string
-	goExePath  string // recon-go.exe 显式路径（baseline 子进程执行器）
-	procs      map[string]*exec.Cmd
-	stopping   map[string]bool
-	jobs       map[string]io.Closer // 任务 id → Job Object 句柄（Windows，随壳消亡）
-	sink       Sink
+	mu       sync.Mutex
+	repoRoot string // 扫描产物 out/ 的落点根（与引擎/Python 三方同名规则）
+	jobs     map[string]*inprocJob
+	stopping map[string]bool
+	sink     Sink
 
-	// 两个接缝：测试注入假进程 / 假 LookPath
-	Command  func(name string, args ...string) *exec.Cmd
-	LookPath func(file string) (string, error)
+	// 模块函数表：cmd → 执行函数。生产在 NewRunner 装配内置实现；
+	// SetModuleFunc 为测试接缝。
+	modules map[string]ModuleFunc
+
+	// pickBase 接缝：baseline 的 HTTP 类检查入口推导（生产 = cli.PickBase，
+	// 与 engine-go cli.go baseline 分支同参；测试注入本地靶站地址）。
+	pickBase func(host string) string
 }
 
-// NewRunner repoRoot=仓库根（src/recon.py 与 out/ 所在），dataDir=桌面端数据目录。
-func NewRunner(repoRoot, dataDir, pythonPath string) *Runner {
-	return &Runner{
-		repoRoot:   repoRoot,
-		dataDir:    dataDir,
-		pythonPath: pythonPath,
-		procs:      make(map[string]*exec.Cmd),
-		stopping:   make(map[string]bool),
-		jobs:       make(map[string]io.Closer),
-		Command:    exec.Command,
-		LookPath:   exec.LookPath,
+// NewRunner 组装直调 runner：repoRoot=仓库根（扫描产物 out/ 落点）。
+func NewRunner(repoRoot string) *Runner {
+	r := &Runner{
+		repoRoot: repoRoot,
+		jobs:     make(map[string]*inprocJob),
+		stopping: make(map[string]bool),
+		pickBase: cli.PickBase,
 	}
+	r.modules = map[string]ModuleFunc{
+		"all":         r.runAllModule,
+		"subdomain":   r.runSubdomain,
+		"paths":       r.runPaths,
+		"api":         r.runAPI,
+		"fingerprint": r.runFingerprint,
+		"reverse":     r.runReverse,
+		"icp":         r.runICP,
+		"baseline":    r.runBaseline,
+	}
+	return r
 }
 
-// SetSink 注入状态回写通道（须在 Start 之前）。
-func (r *Runner) SetSink(s Sink) { r.sink = s }
+// SetSink 注入状态回写通道（并发纪律：与 sinkOrDefault 同锁，运行中调用
+// 不再是并发读写；语义上仍建议在 Start 之前装配）。
+func (r *Runner) SetSink(s Sink) {
+	r.mu.Lock()
+	r.sink = s
+	r.mu.Unlock()
+}
+
+// SetModuleFunc 注入/替换模块执行函数（测试接缝；cmd 不在白名单内为无操作）。
+func (r *Runner) SetModuleFunc(cmd string, fn ModuleFunc) {
+	if !cmdSet[cmd] {
+		return
+	}
+	r.mu.Lock()
+	r.modules[cmd] = fn
+	r.mu.Unlock()
+}
 
 func (r *Runner) sinkOrDefault() Sink {
-	if r.sink == nil {
+	r.mu.Lock()
+	s := r.sink
+	r.mu.Unlock()
+	if s == nil {
 		return nopSink{}
 	}
-	return r.sink
+	return s
 }
 
 type nopSink struct{}
@@ -82,393 +127,186 @@ type nopSink struct{}
 func (nopSink) AppendProgress(string, []store.ProgressEvent) {}
 func (nopSink) SetStatus(string, string, *int)               {}
 
-// ErrNotRunning 任务不在运行（进程表无此 ID）。调用方（如 server 的 stop）
-// 应按幂等成功处理：崩溃重启后 tasks.json 里残留的 running 任务进程已不存在。
+// ErrNotRunning 任务不在运行（作业表无此 ID）。调用方（如 session 的 stop）
+// 应按幂等成功处理：任务已自然收尾或尚未起步。
 var ErrNotRunning = errors.New("任务未在运行")
 
-// ResolvePython 解析解释器：显式设置 > RECON_PYTHON 环境变量 > PATH（python → python3）。
-func (r *Runner) ResolvePython() (string, error) {
-	if r.pythonPath != "" {
-		return r.pythonPath, nil
-	}
-	if env := os.Getenv("RECON_PYTHON"); env != "" {
-		if _, err := os.Stat(env); err == nil {
-			return env, nil
-		}
-	}
-	for _, name := range []string{"python", "python3"} {
-		p, err := r.LookPath(name)
-		if err != nil {
-			continue
-		}
-		// Windows 商店占位程序（WindowsApps 存根）LookPath 可命中但运行必败，跳过
-		if strings.Contains(strings.ToLower(p), "windowsapps") {
-			continue
-		}
-		return p, nil
-	}
-	return "", errors.New("未找到 Python 解释器（可在设置里指定，或设 RECON_PYTHON 环境变量）")
-}
-
-// SetGoEnginePath 注入 recon-go.exe 显式路径（来自 settings.json 的
-// go_engine_path，优先级最高）。
-func (r *Runner) SetGoEnginePath(p string) { r.goExePath = p }
-
-// ResolveGoEngine 解析 Go 引擎执行器（baseline 子进程）：显式设置 >
-// RECON_GO_EXE 环境变量 > repoRoot/engine-go/recon-go.exe 探测（回退顺序
-// 同 ResolvePython 样板）。找不到返回错误——引擎缺失必须显式报错并给构建
-// 指引，不静默失败（教训：依赖静默失败让排查成本翻倍）。
-func (r *Runner) ResolveGoEngine() (string, error) {
-	if r.goExePath != "" {
-		return r.goExePath, nil
-	}
-	if env := os.Getenv("RECON_GO_EXE"); env != "" {
-		if _, err := os.Stat(env); err == nil {
-			return env, nil
-		}
-	}
-	cand := filepath.Join(r.repoRoot, "engine-go", "recon-go.exe")
-	if _, err := os.Stat(cand); err == nil {
-		return cand, nil
-	}
-	return "", errors.New("未找到 Go 引擎 recon-go.exe（基线检查需要它：在 engine-go 目录执行 " +
-		"go build -o recon-go.exe . 构建，或在设置里指定路径，或设 RECON_GO_EXE 环境变量）")
-}
-
-// ProbeGoEngine 探测 Go 引擎可用性（recon-go -h，exit 0 即可用），
-// 供设置页「自检」。每次调用带超时上限（probeTimeout），挂起的引擎
-// 不会拖死 UI。返回 (是否可用, 帮助文本首行)。
-func (r *Runner) ProbeGoEngine() (found bool, info string) {
-	exe, err := r.ResolveGoEngine()
-	if err != nil {
-		return false, ""
-	}
-	if st, serr := os.Stat(exe); serr != nil || st.IsDir() {
-		return false, ""
-	}
-	found = true
-	c := r.Command(exe, "-h") // 固定参数数组，经统一进程接缝
-	var buf bytes.Buffer
-	c.Stdout = &buf
-	c.Stderr = &buf
-	if err := r.runBounded(c, probeTimeout); err == nil {
-		info = strings.TrimSpace(buf.String())
-		if i := strings.IndexByte(info, '\n'); i > 0 {
-			info = strings.TrimSpace(info[:i])
-		}
-	}
-	return found, info
-}
-
-// probeTimeout 单次自检子进程的上限：解释器挂起/启动极慢时宁可报
-// 「自检超时」也不能把 Gio 事件循环无限期冻住（审计 low-3）。
-const probeTimeout = 10 * time.Second
-
-// runBounded 带超时跑一次子进程：超时树杀并返回错误（审计 low-3）。
-// 经统一的 Command 接缝构造，测试假件不受影响。
-func (r *Runner) runBounded(c *exec.Cmd, d time.Duration) error {
-	if err := c.Start(); err != nil {
-		return err
-	}
-	done := make(chan error, 1)
-	go func() { done <- c.Wait() }()
-	select {
-	case err := <-done:
-		return err
-	case <-time.After(d):
-		_ = killTree(c)
-		<-done
-		return fmt.Errorf("自检超时（%s）", d)
-	}
-}
-
-// ProbePython 探测解释器可用性与关键依赖（requests/yaml），供设置页自检。
-// 路径先解析并校验为真实存在的可执行文件，再经固定 argv 数组调用（无 shell
-// 参与）；每次调用带超时上限（probeTimeout），挂起的解释器不会拖死 UI。
-func (r *Runner) ProbePython() (found bool, version string, depsOK bool) {
-	py, err := r.ResolvePython()
-	if err != nil {
-		return false, "", false
-	}
-	if abs, lerr := exec.LookPath(py); lerr == nil {
-		py = abs
-	}
-	info, serr := os.Stat(py)
-	if serr != nil || info.IsDir() {
-		return false, "", false
-	}
-	found = true
-	c := r.Command(py, "--version") // 固定参数数组，经统一进程接缝
-	var buf bytes.Buffer
-	c.Stdout = &buf
-	c.Stderr = &buf
-	if err := r.runBounded(c, probeTimeout); err == nil {
-		version = strings.TrimSpace(buf.String())
-	}
-	dep := r.Command(py, "-c", "import requests, yaml") // 固定代码串 + 参数数组
-	dep.Dir = r.repoRoot
-	depsOK = r.runBounded(dep, probeTimeout) == nil
-	return found, version, depsOK
-}
-
-// CmdAllowed 报告子命令是否在九模块白名单内。
+// CmdAllowed 报告子命令是否在八模块白名单内。
 func CmdAllowed(cmd string) bool { return cmdSet[cmd] }
 
-// BuildCmdArgs 把子命令 + 目标拼成引擎的参数段（不含解释器/引擎可执行与
-// 脚本路径）。fix1 P0 纵深层：extra 过 ValidateExtraArgs 精确白名单（堵
-// argparse 前缀缩写展开覆盖目标）——server 层黑名单之外的任何调用方也绕
-// 不过这里。baseline 目标走 -d（域名形态，归一化由 session 层保证）。
-func BuildCmdArgs(cmd, target string, extra []string) ([]string, error) {
-	if !cmdSet[cmd] {
-		return nil, fmt.Errorf("不支持的子命令：%s", cmd)
-	}
-	if err := ValidateExtraArgs(cmd, extra); err != nil {
-		return nil, err
-	}
-	var head []string
-	switch cmd {
-	case "all":
-		head = []string{"all", "-t", target}
-	case "portscan":
-		head = []string{"portscan", "-t", target}
-	case "subdomain", "baseline":
-		head = []string{cmd, "-d", target}
-	case "icp":
-		head = []string{"icp", "-d", target}
-	case "reverse":
-		head = []string{"reverse", "-i", target}
-	case "api", "paths", "fingerprint", "jsintel":
-		head = []string{cmd, "-u", target}
-	}
-	return append(head, extra...), nil
-}
-
 // taskIDRe 任务 id 形态：字母数字开头结尾，中间允许点/连字符/下划线，
-// 全长 ≤80——id 会拼进 progress/log 文件路径，畸形 id 在引擎层就地拒绝。
+// 全长 ≤80——id 会出现在日志与任务库键里，畸形 id 在引擎层就地拒绝。
 var taskIDRe = regexp.MustCompile(`^[0-9A-Za-z]([0-9A-Za-z._-]{0,78}[0-9A-Za-z])?$`)
 
-// Start 起一个扫描进程并挂上监视 goroutine。成功后任务状态置 running。
+// Start 起一个进程内扫描作业。成功后任务状态置 running。
 func (r *Runner) Start(id, cmd, target string, extra []string) error {
-	// 引擎层纵深闸（终修轮，审计 adv-low-1）：正常流程里调用方
-	// （session.CreateTask）已过目标格式校验与参数闸，但本层不信任该前提——
-	// 未来任何新调用方直连 Start，也不至于把格式非法的目标送进扫描、把
-	// 畸形 id 拼进 progress/log 文件路径。目标本身全部默认授权（用户裁定
-	// 2026-10-05），本闸只做格式卫生。
+	// 引擎层纵深闸（fix3 原样平移）：正常流程里调用方（session.CreateTask）
+	// 已过目标格式校验与参数闸，但本层不信任该前提——未来任何新调用方直连
+	// Start，也不至于把格式非法的目标送进扫描。目标本身全部默认授权
+	//（用户裁定 2026-10-05），本闸只做格式卫生。
 	if _, err := whitelist.Check(target); err != nil {
 		return fmt.Errorf("目标格式校验未通过：%w", err)
 	}
 	if !taskIDRe.MatchString(id) {
 		return fmt.Errorf("任务 ID 含不允许的字符：%q", id)
 	}
-	argv, err := BuildCmdArgs(cmd, target, extra)
-	if err != nil {
+	if !cmdSet[cmd] {
+		return fmt.Errorf("不支持的子命令：%s", cmd)
+	}
+	if err := ValidateExtraArgs(cmd, extra); err != nil {
 		return err
 	}
-	progressPath := filepath.Join(r.dataDir, "progress", id+".jsonl")
-	logPath := filepath.Join(r.dataDir, "logs", id+".log")
-	if err := os.MkdirAll(filepath.Dir(progressPath), 0o755); err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
-		return err
-	}
-
-	// 按子命令选引擎分支（桌面执行器裁决）：baseline → recon-go.exe 第二
-	// 子进程；其余九模块照旧 python recon.py。两引擎的 --progress-file 都
-	// 必须放在子命令之前（argparse 主解析器参数 / cli.applyProgressFile 只
-	// 认前置形态），进度事件流同构，Tailer 与 monitor 终态机对引擎无感知。
-	var full []string
-	if cmd == "baseline" {
-		goExe, gerr := r.ResolveGoEngine()
-		if gerr != nil {
-			return gerr
-		}
-		full = append([]string{goExe, "--progress-file", progressPath}, argv...)
-	} else {
-		python, perr := r.ResolvePython()
-		if perr != nil {
-			return perr
-		}
-		script := filepath.Join("src", "recon.py")
-		if _, err := os.Stat(filepath.Join(r.repoRoot, script)); err != nil {
-			return errors.New("未找到扫描引擎 src/recon.py（工作目录必须为仓库根）")
-		}
-		full = append([]string{python, script, "--progress-file", progressPath}, argv...)
-	}
-	c := r.Command(full[0], full[1:]...)
-	c.Dir = r.repoRoot
-	if cmd != "baseline" { // Python 侧编码环境；Go 引擎无需
-		c.Env = append(os.Environ(), "PYTHONUTF8=1", "PYTHONIOENCODING=utf-8")
-	}
-	logFile, err := os.Create(logPath) // stdout/stderr 原样落盘，不解析
-	if err != nil {
-		return err
-	}
-	c.Stdout = logFile
-	c.Stderr = logFile
 
 	r.mu.Lock()
-	if _, dup := r.procs[id]; dup {
+	if _, dup := r.jobs[id]; dup {
 		r.mu.Unlock()
-		logFile.Close()
 		return fmt.Errorf("任务已在运行：%s", id)
 	}
-	// created 窗口/竞态：hStop 可能抢在注册进程前到达（Stop 对无进程任务
-	// 也插 stopping 旗），此处自检放弃，不得照常起进程把停止吞掉。
+	// created 窗口/竞态：Stop 可能抢在注册作业前到达（Stop 对无作业任务
+	// 也插 stopping 旗），此处自检放弃，不得照常执行把停止吞掉
+	//（语义自旧 runner.go:317-323 平移）。
 	if r.stopping[id] {
 		delete(r.stopping, id)
 		r.mu.Unlock()
-		logFile.Close()
 		return fmt.Errorf("任务已请求停止：%s", id)
 	}
-	if err := c.Start(); err != nil {
-		r.mu.Unlock()
-		logFile.Close()
-		return fmt.Errorf("启动失败：%w", err)
-	}
-	r.procs[id] = c
+	job := &inprocJob{done: make(chan struct{}), cmd: cmd}
+	ctx, cancel := context.WithCancel(context.Background())
+	job.cancel = cancel
+	r.jobs[id] = job
 	delete(r.stopping, id)
 	r.mu.Unlock()
 
-	// P2（对抗实锤）：进程挂进「随壳消亡」的 Job Object——壳被硬杀时
-	// 句柄随进程回收而关闭，KILL_ON_JOB_CLOSE 让扫描进程树同步终局，
-	// 不再留孤儿扫描。挂载失败不阻断起扫描（killTree 兜底仍在）。
-	if job, jerr := attachJob(c.Process.Pid); jerr == nil {
-		r.setJob(id, job)
-	}
-
-	done := make(chan error, 1)
-	go func() {
-		done <- c.Wait()
-		logFile.Close()
-	}()
 	r.sinkOrDefault().SetStatus(id, store.StatusRunning, nil)
-	go r.monitor(id, c, progressPath, done)
+	go func() {
+		err := r.execTask(ctx, id, cmd, target, extra)
+		// 取消态必须先于 cancel() 采样——cancel 在此处只是释放 ctx 资源，
+		// 采样放在它后面会把每个自然完成的任务都误判成 stopped。
+		cancelled := ctx.Err() != nil
+		cancel() // 引擎返回后释放 ctx 资源（幂等）
+		r.mu.Lock()
+		delete(r.jobs, id)
+		wasStopping := r.stopping[id]
+		delete(r.stopping, id)
+		r.mu.Unlock()
+		close(job.done)
+
+		// 终态裁决：取消（含停止旗）→ stopped；引擎报错 → fail；否则 done。
+		// 与旧 monitor 终态机同语义（exitCode 概念随子进程退役，恒 0/1）。
+		switch {
+		case wasStopping || cancelled:
+			code := 0
+			r.sinkOrDefault().SetStatus(id, store.StatusStopped, &code)
+		case err != nil:
+			code := 1
+			r.sinkOrDefault().SetStatus(id, store.StatusFail, &code)
+		default:
+			code := 0
+			r.sinkOrDefault().SetStatus(id, store.StatusDone, &code)
+		}
+	}()
 	return nil
 }
 
-// monitor 周期拉进度；进程退出后补收尾事件并落终态。
-func (r *Runner) monitor(id string, c *exec.Cmd, progressPath string, done <-chan error) {
-	sink := r.sinkOrDefault()
-	tailer := NewTailer(progressPath)
-	sawEnd := false
-	endDetail := ""
-	ticker := time.NewTicker(400 * time.Millisecond)
-	defer ticker.Stop()
-	var exitErr error
-	finished := false
-	for !finished {
-		select {
-		case exitErr = <-done:
-			finished = true
-		case <-ticker.C:
-		}
-		if evs := tailer.Poll(); len(evs) > 0 {
-			for _, ev := range evs {
-				if ev.Event == "pipeline_end" {
-					sawEnd = true
-					endDetail = ev.Detail
-				}
-			}
-			sink.AppendProgress(id, evs)
-		}
+// execTask 单任务调度：发 pipeline_start → start(cmd) → 模块执行（含引擎
+// 内层事件）→ done|fail(cmd) → pipeline_end(done|fail)。all 无模块级
+// start/done（recon.py:250-256 / cli.go:98 契约），步骤级事件由 allrunner 发。
+func (r *Runner) execTask(ctx context.Context, id, cmd, target string, extra []string) error {
+	r.emit(id, "pipeline", "pipeline_start", cmd)
+	if cmd != "all" {
+		r.emit(id, cmd, "start", "")
 	}
-
-	r.mu.Lock()
-	delete(r.procs, id)
-	r.mu.Unlock()
-	r.clearJob(id) // 进程已退出，收掉 Job 句柄（对已退出进程无害）
-
-	// 兜底：进程没了却没等到 pipeline_end（崩溃/被外部杀）→ 补一条 fail 收尾
-	if !sawEnd {
-		sink.AppendProgress(id, []store.ProgressEvent{{
-			Ts: float64(time.Now().UnixMilli()) / 1e3, Module: "pipeline",
-			Event: "pipeline_end", Detail: "fail",
-		}})
-	}
-
-	r.mu.Lock()
-	wasStopping := r.stopping[id]
-	delete(r.stopping, id)
-	r.mu.Unlock()
-
-	exitCode := 0
-	if exitErr != nil {
-		var ee *exec.ExitError
-		if errors.As(exitErr, &ee) {
-			exitCode = ee.ExitCode()
-		} else {
-			exitCode = -1
-		}
-	}
+	err := r.runModule(ctx, id, cmd, target, extra)
 	switch {
-	case wasStopping:
-		sink.SetStatus(id, store.StatusStopped, &exitCode)
-	case exitErr == nil && sawEnd && endDetail == "done":
-		sink.SetStatus(id, store.StatusDone, &exitCode)
+	case ctx.Err() != nil:
+		// 停止/取消：补流水线收尾事件（旧壳兜底同款 fail 语义），终态由
+		// job goroutine 判 ctx 落 stopped。
+		r.emit(id, "pipeline", "pipeline_end", "fail")
+		return err
+	case err != nil:
+		if cmd != "all" {
+			r.emit(id, cmd, "fail", err.Error())
+		}
+		r.emit(id, "pipeline", "pipeline_end", "fail")
+		return err
 	default:
-		sink.SetStatus(id, store.StatusFail, &exitCode)
+		if cmd != "all" {
+			r.emit(id, cmd, "done", "")
+		}
+		r.emit(id, "pipeline", "pipeline_end", "done")
+		return nil
 	}
 }
 
-// Stop 终止进程树（Windows：taskkill /T /F；其他平台 Kill）。
+// runModule 取模块函数执行（终修轮两件事并一处）：
+//  1. 并发纪律（审计 low#4）：modules 表读与 SetModuleFunc 写共用 r.mu——
+//     此前 job goroutine 无锁读 map，运行中调用导出接缝即并发 map 读写
+//     → runtime fatal（不可 recover 的整进程死）。
+//  2. panic 兜底（审计 high#1）：直调重写后八模块全跑在本桌面进程的
+//     job goroutine 上，任一引擎代码 panic（敌意远端数据解析路径：JSON
+//     类型断言/切片越界/TLS 解析）即炸穿整个 exe、所有任务同灭。一处
+//     recover 就地把 panic 转 error → 走既有 fail 事件/终态机，只死本任务。
+//     all 模块的 allStep fn() 直调在本函数调用树内，同一兜底面覆盖。
+func (r *Runner) runModule(ctx context.Context, id, cmd, target string, extra []string) (err error) {
+	r.mu.Lock()
+	fn := r.modules[cmd]
+	r.mu.Unlock()
+	defer func() {
+		if p := recover(); p != nil {
+			err = fmt.Errorf("引擎内部异常（panic 已兜底，仅失败本任务）：%v", p)
+		}
+	}()
+	return fn(ctx, id, target, extra)
+}
+
+// emit 追加一条进度事件（即 store.ProgressEvent 契约：ts/module/event/detail）。
+func (r *Runner) emit(id, module, event, detail string) {
+	r.sinkOrDefault().AppendProgress(id, []store.ProgressEvent{{
+		Ts:     float64(time.Now().UnixMilli()) / 1e3,
+		Module: module,
+		Event:  event,
+		Detail: detail,
+	}})
+}
+
+// makeOutDir 产物目录：repoRoot/out/<目标清洗名>，目录名与 Python make_outdir /
+// engine-go MakeOutdir 三方同名契约一致（cli.OutdirName 同一实现）。
+func (r *Runner) makeOutDir(target string) (string, error) {
+	out := filepath.Join(r.repoRoot, "out", cli.OutdirName(target))
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		return out, err
+	}
+	return out, nil
+}
+
+// Stop 停止任务：cancel 作业 ctx，取消沿引擎 RunContext 贯穿（FetchOpt.Ctx、
+// 循环检查点、toolrun CommandContext）。直调后桌面进程内无壳启动的子进程，
+// 无进程树可级联（原 taskkill/Job Object 路径整体退役）。
 func (r *Runner) Stop(id string) error {
 	r.mu.Lock()
-	c, ok := r.procs[id]
-	// 无进程也插旗：并发在途的 Start（尚未注册进程）自检后放弃，
-	// 否则 hStop 已落 stopped 而 Start 照常把任务跑完。
+	job, ok := r.jobs[id]
+	// 无作业也插旗：并发在途的 Start（尚未注册）自检后放弃，
+	// 否则停止已确认而 Start 照常把任务跑完。
 	r.stopping[id] = true
 	r.mu.Unlock()
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrNotRunning, id)
 	}
-	err := killTree(c)
-	// 树杀后收掉 Job 句柄（对已退出进程无害；killTree 若失败，
-	// KILL_ON_JOB_CLOSE 仍让整树在句柄关闭时终局）。
-	r.clearJob(id)
-	return err
+	job.cancel() // 幂等：context 取消可重入，双停/停后查无副作用
+	return nil
 }
 
-// StopAll 收尾用：杀掉全部运行中的进程树，并收掉全部 Job 句柄。
+// StopAll 收尾用：取消全部运行中的作业（关窗路径）。
 func (r *Runner) StopAll() {
 	r.mu.Lock()
-	procs := make([]*exec.Cmd, 0, len(r.procs))
-	jobs := make([]io.Closer, 0, len(r.jobs))
-	for id, c := range r.procs {
-		r.stopping[id] = true
-		procs = append(procs, c)
-	}
+	jobs := make([]*inprocJob, 0, len(r.jobs))
 	for id, j := range r.jobs {
+		r.stopping[id] = true
 		jobs = append(jobs, j)
-		delete(r.jobs, id)
 	}
 	r.mu.Unlock()
-	for _, c := range procs {
-		_ = killTree(c)
-	}
 	for _, j := range jobs {
-		_ = j.Close() // KILL_ON_JOB_CLOSE：句柄关闭即整树终局
-	}
-}
-
-// setJob 登记任务的 Job 句柄（调用方持锁与否不限，内部自锁）。
-func (r *Runner) setJob(id string, j io.Closer) {
-	if j == nil {
-		return
-	}
-	r.mu.Lock()
-	r.jobs[id] = j
-	r.mu.Unlock()
-}
-
-// clearJob 收掉并注销任务的 Job 句柄（幂等；句柄缺失为无操作）。
-func (r *Runner) clearJob(id string) {
-	r.mu.Lock()
-	j, ok := r.jobs[id]
-	delete(r.jobs, id)
-	r.mu.Unlock()
-	if ok && j != nil {
-		_ = j.Close()
+		j.cancel()
 	}
 }
 
@@ -476,8 +314,8 @@ func (r *Runner) clearJob(id string) {
 func (r *Runner) RunningIDs() []string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	out := make([]string, 0, len(r.procs))
-	for id := range r.procs {
+	out := make([]string, 0, len(r.jobs))
+	for id := range r.jobs {
 		out = append(out, id)
 	}
 	return out
@@ -487,27 +325,142 @@ func (r *Runner) RunningIDs() []string {
 func (r *Runner) IsRunning(id string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	_, ok := r.procs[id]
+	_, ok := r.jobs[id]
 	return ok
 }
 
-func killTree(c *exec.Cmd) error {
-	if c.Process == nil {
-		return nil
+// ── 单模块直调实现（任务模型映射表；out 目录规则见 makeOutDir）──
+
+// runSubdomain 子域枚举；extra 含 --verify 时续跑存活验证（out,8,true，与
+// engine-go cli.go subdomain 分支同参）。
+func (r *Runner) runSubdomain(ctx context.Context, id, target string, extra []string) error {
+	out, err := r.makeOutDir(target)
+	if err != nil {
+		return fmt.Errorf("输出目录创建失败: %w", err)
 	}
-	if runtime.GOOS == "windows" {
-		// 先树杀（连带 python 起的子进程），失败再退回直接 Kill
-		if err := exec.Command("taskkill", "/T", "/F", "/PID", strconv.Itoa(c.Process.Pid)).Run(); err == nil {
-			return nil
-		}
-	}
-	// 进程已自行退出（并发双停/竞态）按幂等成功处理，不让调用方报"停止失败"。
-	// Windows 对已退出进程可能回 ErrProcessDone，也可能回 EINVAL（句柄已失效）。
-	if err := c.Process.Kill(); err != nil {
-		if errors.Is(err, os.ErrProcessDone) || strings.Contains(err.Error(), "invalid argument") {
-			return nil
-		}
+	if _, err := subdomain.RunContext(ctx, target, out); err != nil {
 		return err
 	}
+	if extraHasFlag(extra, "--verify") {
+		subdomain.RunVerifyContext(ctx, out, 8, true)
+	}
 	return nil
+}
+
+func (r *Runner) runPaths(ctx context.Context, id, target string, extra []string) error {
+	out, err := r.makeOutDir(target)
+	if err != nil {
+		return fmt.Errorf("输出目录创建失败: %w", err)
+	}
+	_, err = paths.RunPathsContext(ctx, target, out)
+	return err
+}
+
+func (r *Runner) runAPI(ctx context.Context, id, target string, extra []string) error {
+	out, err := r.makeOutDir(target)
+	if err != nil {
+		return fmt.Errorf("输出目录创建失败: %w", err)
+	}
+	_, err = apiunauth.RunAPIContext(ctx, target, out, true) // 取证模式，与 cli.go:272 同参
+	return err
+}
+
+func (r *Runner) runFingerprint(ctx context.Context, id, target string, extra []string) error {
+	out, err := r.makeOutDir(target)
+	if err != nil {
+		return fmt.Errorf("输出目录创建失败: %w", err)
+	}
+	fingerprint.RunFingerprintContext(ctx, target, out)
+	return nil
+}
+
+func (r *Runner) runReverse(ctx context.Context, id, target string, extra []string) error {
+	// IP 形态闸保留（cli.go:219 同款 fail-closed；session 层已有同规则前置）
+	if net.ParseIP(target) == nil {
+		return fmt.Errorf("非法 IP: %q（reverse 需要合法 IPv4/IPv6 地址）", target)
+	}
+	out, err := r.makeOutDir(target)
+	if err != nil {
+		return fmt.Errorf("输出目录创建失败: %w", err)
+	}
+	reverseip.RunReverseContext(ctx, target, out)
+	return nil
+}
+
+func (r *Runner) runICP(ctx context.Context, id, target string, extra []string) error {
+	out, err := r.makeOutDir(target)
+	if err != nil {
+		return fmt.Errorf("输出目录创建失败: %w", err)
+	}
+	icp.RunICPContext(ctx, target, out)
+	return nil
+}
+
+// runBaseline 基线检查：与 engine-go cli.go:385-393 同参直调 baseline。
+// URL 经 pickBase 接缝推导（生产 = cli.PickBase）；逐检查 start/done/fail/
+// skipped 事件经 Options.Emit 直通 sink；Logf 静默（桌面进程内无控制台管道）。
+// 超时沿用引擎默认（PerCheckTimeout 60s / TotalBudget 5min），壳级不加总超时。
+func (r *Runner) runBaseline(ctx context.Context, id, target string, extra []string) error {
+	out, err := r.makeOutDir(target)
+	if err != nil {
+		return fmt.Errorf("输出目录创建失败: %w", err)
+	}
+	opts, err := buildBaselineOptions(target, extra, out)
+	if err != nil {
+		return err
+	}
+	opts.URL = r.pickBase(target)
+	opts.Emit = func(event, module, detail string) { r.emit(id, module, event, detail) }
+	return baseline.RunContext(ctx, opts)
+}
+
+// buildBaselineOptions 组装 baseline.Options（URL/Emit 由调用方补齐）：
+// --checks 归一化（缺省展开全 8 项；未知检查名就地拒绝，零网络副作用），
+// AllowPrivate 恒开。
+func buildBaselineOptions(domain string, extra []string, out string) (baseline.Options, error) {
+	var raw []string
+	if v, ok := extraFlagValue(extra, "--checks"); ok && strings.TrimSpace(v) != "" {
+		raw = strings.Split(v, ",")
+	}
+	checks, err := baseline.NormalizeChecks(raw)
+	if err != nil {
+		return baseline.Options{}, err
+	}
+	return baseline.Options{
+		Domain:       domain,
+		Out:          out,
+		Checks:       checks,
+		AllowPrivate: true, // 桌面契约：授权内网目标放行（cli.go:387 同参）
+	}, nil
+}
+
+// extraHasFlag extra 里是否出现布尔旗标（--verify / --verify=true 均算）。
+func extraHasFlag(extra []string, name string) bool {
+	for _, tk := range extra {
+		if tk == name || strings.HasPrefix(tk, name+"=") {
+			return true
+		}
+	}
+	return false
+}
+
+// extraFlagValue 取值旗标的值：支持 "--name value" 与 "--name=value" 两形态；
+// 出现多次取最后一个（与 argparse last-wins 一致）。未出现返回 (""，false)。
+func extraFlagValue(extra []string, name string) (string, bool) {
+	found, val := false, ""
+	for i := 0; i < len(extra); i++ {
+		tk := extra[i]
+		if tk == name {
+			if i+1 < len(extra) {
+				val = extra[i+1]
+				found = true
+			}
+			continue
+		}
+		if strings.HasPrefix(tk, name+"=") {
+			val = strings.TrimPrefix(tk, name+"=")
+			found = true
+		}
+	}
+	return val, found
 }

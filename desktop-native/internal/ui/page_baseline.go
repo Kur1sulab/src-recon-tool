@@ -11,8 +11,8 @@ package ui
 //     包络契约 = engine-go baseline/result.go 冻结 schema）。
 //
 // 三态：空=全部「未运行」空卡 + 引导语；载=「检查中…/排队中」逐检查点亮；
-// 错=CreateTask 错误横条 / Go 引擎缺失构建指引 / 检查级失败红字（fail 事件
-// 不中断其余检查的语义在 UI 可见：个别卡红、其余卡照常推进）。
+// 错=CreateTask 错误横条 / 检查级失败红字（fail 事件不中断其余检查的语义
+// 在 UI 可见：个别卡红、其余卡照常推进）。
 //
 // 布局纪律：卡片内容全部拆成「返回单行 FlexChild」的小助手（每层至多两重
 // 闭包），闭包配对错位是本文件初版真实咬过人的坑（gofmt 报 396 行括号失衡）。
@@ -31,12 +31,6 @@ import (
 	"recon-native/internal/store"
 	"recon-native/internal/whitelist"
 )
-
-// goEngineMissingHint Go 引擎缺失的显式指引（不静默失败；设置页与仪表盘共用）。
-func goEngineMissingHint() string {
-	return "未找到 Go 引擎 recon-go.exe（基线检查执行器）。构建：进入仓库 engine-go 目录执行 " +
-		"go build -o recon-go.exe . ；或在设置页填入 recon-go.exe 绝对路径后「保存并生效」"
-}
 
 // normalizedBaselineTarget 当前输入目标的归一化结果（与 CreateTask 同一条
 // whitelist.Check → normalizeTarget 链，页面读取产物用的目录键与任务执行
@@ -190,7 +184,7 @@ func (a *appUI) pageBaseline(gtx layout.Context) layout.Dimensions {
 func (a *appUI) baselineInputCard(gtx layout.Context) layout.Dimensions {
 	rows := []layout.FlexChild{
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return sectionLabel(a.th, "目标域名（不含协议和端口，如 xycovo.com）").Layout(gtx)
+			return sectionLabel(a.th, "目标域名（不含协议和端口，如 example.com）").Layout(gtx)
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return layout.Inset{Top: Sp2}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -209,13 +203,6 @@ func (a *appUI) baselineInputCard(gtx layout.Context) layout.Dimensions {
 	rows = append(rows, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 		return layout.Inset{Top: Sp3}.Layout(gtx, a.baselineRunButton)
 	}))
-	if _, err := a.sess.Runner.ResolveGoEngine(); err != nil {
-		rows = append(rows, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return layout.Inset{Top: Sp2}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				return banner(gtx, a.th, goEngineMissingHint(), ColWarnBg, ColWarn)
-			})
-		}))
-	}
 	if a.baseErr != "" {
 		rows = append(rows, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return layout.Inset{Top: Sp2}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {

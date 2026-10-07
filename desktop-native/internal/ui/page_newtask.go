@@ -24,15 +24,14 @@ func (a *appUI) pageNewTask(gtx layout.Context) layout.Dimensions {
 	)
 }
 
-// argHint 按所选模块给出可选参数提示（与 engine.moduleFlags 一致）。
+// argHint 按所选模块给出可选参数提示（与 engine.moduleFlags 一致；八模块——
+// jsintel/portscan 已随全集成退役）。
 func argHint(module string) string {
 	switch module {
-	case "portscan":
-		return "可选：--ports 1-1000  --timeout 3  --workers 50"
-	case "jsintel":
-		return "可选：--max-files 20  --workers 4"
 	case "subdomain":
 		return "可选：--verify（对枚举结果做存活验证）"
+	case "baseline":
+		return "可选：--checks secheaders,webfiles（逗号分隔，只跑选中的检查）"
 	default:
 		return "该模块没有可选参数，留空即可"
 	}
@@ -67,7 +66,7 @@ func (a *appUI) newTaskForm(gtx layout.Context) layout.Dimensions {
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return layout.Inset{Top: Sp1}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				return inputWell(gtx, a.th, &a.argsEd, Fs14, "例如：--ports 1-1000")
+				return inputWell(gtx, a.th, &a.argsEd, Fs14, "例如：--verify")
 			})
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {

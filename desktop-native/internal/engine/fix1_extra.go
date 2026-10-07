@@ -14,9 +14,10 @@ import (
 	"strings"
 )
 
-// moduleFlags 各子命令允许用户附加的旗标白名单（九模块与 recon.py:164-187
-// 子解析器一一对应；baseline 是 recon-go 专属子命令，旗标表对应
-// engine-go cli.go 的 baseline 分支）。all/paths/api/fingerprint/reverse/icp
+// moduleFlags 各子命令允许用户附加的旗标白名单（八模块，与 cmdSet 一一对应；
+// baseline 旗标表对应 engine-go cli.go 的 baseline 分支）。jsintel/portscan
+// 已随全集成退役（不在 cmdSet，Start 层拒绝；表外子命令在本校验返回 nil 的
+// 契约不变）。all/paths/api/fingerprint/reverse/icp
 // 的子解析器除目标旗标外无可选项，故为空集。
 var moduleFlags = map[string]map[string]bool{
 	"all":         {},
@@ -25,15 +26,12 @@ var moduleFlags = map[string]map[string]bool{
 	"fingerprint": {},
 	"reverse":     {},
 	"icp":         {},
-	"jsintel":     {"--max-files": true, "--workers": true},
-	"portscan":    {"--ports": true, "--timeout": true, "--workers": true},
 	"subdomain":   {"--verify": true},
 	"baseline":    {"--checks": true},
 }
 
 // valueFlags 需要取值的旗标（store_true 类除外）；值 token 不允许以 "-" 开头。
 var valueFlags = map[string]bool{
-	"--ports": true, "--timeout": true, "--workers": true, "--max-files": true,
 	"--checks": true,
 }
 

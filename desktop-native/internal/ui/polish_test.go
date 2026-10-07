@@ -4,8 +4,7 @@ package ui
 // 不起 GUI 不截图；可视化条目（对齐/间距/钳高的观感）走 docs/人工目验清单.md。
 //
 // 覆盖：
-//   - envInfo.goProbed 载入态（设置页 Go 引擎卡不再在自检未回时误报「未找到」）；
-//   - setPy 只动 Python 字段不覆盖 mock 探测结果；
+//   - envInfo mock 探测生命周期（第 2 步直调重写后 env 仅剩 mock 一项）；
 //   - baselineTargetKey 输入非法即时原因（不再静默退回空态）；
 //   - pollBaseline 任务终态横条（失败/被停止在暴露面页有呈现，「已开始」清掉）；
 //   - expireStopErr / expireNewBanners 横条生命周期；
@@ -19,40 +18,24 @@ import (
 	"recon-native/internal/store"
 )
 
-func TestEnvInfoGoProbedLifecycle(t *testing.T) {
+func TestEnvInfoMockLifecycle(t *testing.T) {
 	var e envInfo
-	_, _, goFound, probed := e.goSnapshot()
-	if goFound || probed {
-		t.Fatalf("未探测时不得报已找到/已探测: found=%v probed=%v", goFound, probed)
+	mock, probed := e.snapshot()
+	if mock || probed {
+		t.Fatalf("未探测时不得报可达/已探测: mock=%v probed=%v", mock, probed)
 	}
-	e.setGo("", "", false) // 后台自检回：确实没找到
-	_, _, goFound, probed = e.goSnapshot()
+	e.setMock(false) // 后台探测回：不可达
+	mock, probed = e.snapshot()
 	if !probed {
-		t.Fatal("setGo 后 goProbed 应置位（否则页面永远停在「检测中…」）")
+		t.Fatal("setMock 后 probed 应置位（否则页面永远停在「检测中…」）")
 	}
-	if goFound {
-		t.Fatal("未找到时 goFound 应为 false")
+	if mock {
+		t.Fatal("不可达时 mock 应为 false")
 	}
-	e.setGo(`C:\x\recon-go.exe`, "usage", true)
-	_, _, goFound, probed = e.goSnapshot()
-	if !goFound || !probed {
-		t.Fatalf("找到后应双置位: found=%v probed=%v", goFound, probed)
-	}
-}
-
-func TestEnvInfoSetPyKeepsMock(t *testing.T) {
-	var e envInfo
 	e.setMock(true)
-	e.setPy(`C:\py\python.exe`, "Python 3.11", true, true)
-	path, ver, found, deps, mock, probed, mockPro := e.snapshot()
-	if path != `C:\py\python.exe` || ver != "Python 3.11" || !found || !deps {
-		t.Fatalf("setPy 应写入 Python 字段: %q %q %v %v", path, ver, found, deps)
-	}
-	if !mock || !mockPro {
-		t.Fatalf("setPy 不得覆盖 mock 探测结果: mock=%v mockPro=%v", mock, mockPro)
-	}
-	if !probed {
-		t.Fatal("setPy 应置 probed")
+	mock, probed = e.snapshot()
+	if !mock || !probed {
+		t.Fatalf("可达后应双置位: mock=%v probed=%v", mock, probed)
 	}
 }
 
@@ -217,7 +200,7 @@ func TestExpireNewBannersAnchor(t *testing.T) {
 	a.targetEd.SetText("xycovo.com")
 	a.expireNewBanners()
 	a.newOK = "任务已开始：t2"
-	a.moduleSel.Value = "portscan"
+	a.moduleSel.Value = "icp"
 	a.expireNewBanners()
 	if a.newOK != "" {
 		t.Fatalf("模块变化后横条应清空: %q", a.newOK)
@@ -306,7 +289,7 @@ func TestUserErrorColonsFullWidth(t *testing.T) {
 	} else {
 		t.Fatal("游离值 token 应拒绝")
 	}
-	if _, err := s.CreateTask("xycovo.com", "portscan", "--ports -80"); err != nil {
+	if _, err := s.CreateTask("xycovo.com", "baseline", "--checks -secheaders"); err != nil {
 		if !strings.Contains(err.Error(), "旗标取值不允许以 - 开头：") || strings.Contains(err.Error(), "开头: ") {
 			t.Fatalf("旗标取值错误冒号应全角: %q", err)
 		}
@@ -318,9 +301,9 @@ func TestUserErrorColonsFullWidth(t *testing.T) {
 func TestProbeChannelInitialized(t *testing.T) {
 	a := newAppUI(newTestSession(t))
 	if a.probeDone == nil || a.exportDone == nil {
-		t.Fatal("probeDone/exportDone 回执通道必须初始化（后台自检/导出共用回执路径）")
+		t.Fatal("probeDone/exportDone 回执通道必须初始化（后台探测/导出共用回执路径）")
 	}
-	if a.pyProbeBusy || a.goProbeBusy || a.mockBusy {
+	if a.mockBusy {
 		t.Fatal("初始不得处于忙态")
 	}
 }

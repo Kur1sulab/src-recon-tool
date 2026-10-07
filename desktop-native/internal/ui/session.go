@@ -1,6 +1,6 @@
 // Package ui 桌面壳的界面与会话编排。会话层把「新建任务」按钮的语义
 // 收敛成一次 CreateTask 调用：模块校验 → 目标卫生校验 → 目标形态归一
-// → 可选参数校验 → 入库 → 起扫描子进程。目标全部默认授权（用户裁定
+// → 可选参数校验 → 入库 → 进程内直调引擎。目标全部默认授权（用户裁定
 // 2026-10-05），本层只做格式卫生，不做任何名单判定。
 package ui
 
@@ -30,24 +30,13 @@ type Session struct {
 }
 
 // NewSession 打开任务库并组装引擎 runner（引擎回调经 sink 回写任务库）。
-// 解释器优先级：settings.json 里用户保存的路径 > 入参（通常来自
-// RECON_PYTHON 环境变量）> PATH 探测。
-func NewSession(repoRoot, dataDir, pythonPath string) (*Session, error) {
+// 第 2 步直调重写后引擎内置于程序本体，无解释器/外部引擎路径可配。
+func NewSession(repoRoot, dataDir string) (*Session, error) {
 	st, err := store.Open(filepath.Join(dataDir, "tasks.json"))
 	if err != nil {
 		return nil, fmt.Errorf("打开任务库失败：%w", err)
 	}
-	settings, lerr := LoadSettings(dataDir)
-	if lerr != nil {
-		return nil, fmt.Errorf("读取设置失败：%w", lerr)
-	}
-	if settings.PythonPath != "" {
-		pythonPath = settings.PythonPath
-	}
-	r := engine.NewRunner(repoRoot, dataDir, pythonPath)
-	if settings.GoEnginePath != "" {
-		r.SetGoEnginePath(settings.GoEnginePath)
-	}
+	r := engine.NewRunner(repoRoot)
 	r.SetSink(sessionSink{st: st})
 	return &Session{Store: st, Runner: r, RepoRoot: repoRoot, DataDir: dataDir}, nil
 }
@@ -117,7 +106,6 @@ func (s *Session) CreateTask(target, cmd, argsRaw string) (string, error) {
 		Args:      strings.Join(extra, " "),
 		Status:    store.StatusCreated,
 		CreatedAt: now,
-		LogPath:   filepath.Join(s.DataDir, "logs", id+".log"),
 	}
 	if err := s.Store.Create(task); err != nil {
 		return "", fmt.Errorf("任务入库失败：%w", err)
@@ -157,79 +145,6 @@ func (s *Session) Tasks() []store.Task { return s.Store.List() }
 
 // Task 单个任务。
 func (s *Session) Task(id string) (store.Task, bool) { return s.Store.Get(id) }
-
-// resolvePythonOrEmpty 返回当前解析到的解释器路径（失败返回空串，仅界面预填用）。
-func (s *Session) resolvePythonOrEmpty() string {
-	p, err := s.Runner.ResolvePython()
-	if err != nil {
-		return ""
-	}
-	return p
-}
-
-// resolveGoEngineOrEmpty 返回当前解析到的 recon-go.exe 路径（失败空串，界面预填用）。
-func (s *Session) resolveGoEngineOrEmpty() string {
-	p, err := s.Runner.ResolveGoEngine()
-	if err != nil {
-		return ""
-	}
-	return p
-}
-
-// rebuildRunner 以当前 settings 换装引擎 runner（Python/Go 两条路径都按
-// settings 带齐——换装丢字段曾会让另一条引擎路径静默回退到探测）。
-func (s *Session) rebuildRunner(pythonPath string) {
-	r := engine.NewRunner(s.RepoRoot, s.DataDir, pythonPath)
-	if st, err := LoadSettings(s.DataDir); err == nil && st.GoEnginePath != "" {
-		r.SetGoEnginePath(st.GoEnginePath)
-	}
-	r.SetSink(sessionSink{st: s.Store})
-	s.Runner = r
-}
-
-// SetPythonPath 切换解释器并写回 settings.json（重启后仍生效）。
-// 有任务运行时拒绝，避免丢进程表。GoEnginePath 字段原样保留。
-func (s *Session) SetPythonPath(path string) error {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		return fmt.Errorf("解释器路径不能为空")
-	}
-	if n := len(s.Runner.RunningIDs()); n > 0 {
-		return fmt.Errorf("有 %d 个任务正在运行，等它们结束再切换解释器", n)
-	}
-	st, err := LoadSettings(s.DataDir)
-	if err != nil {
-		return fmt.Errorf("设置读取失败：%w", err)
-	}
-	st.PythonPath = path
-	if err := SaveSettings(s.DataDir, st); err != nil {
-		return fmt.Errorf("设置写入失败：%w", err)
-	}
-	s.rebuildRunner(path)
-	return nil
-}
-
-// SetGoEnginePath 切换 recon-go.exe（基线检查执行器）路径并写回
-// settings.json（样板同 SetPythonPath；PythonPath 字段原样保留）。
-func (s *Session) SetGoEnginePath(path string) error {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		return fmt.Errorf("Go 引擎路径不能为空")
-	}
-	if n := len(s.Runner.RunningIDs()); n > 0 {
-		return fmt.Errorf("有 %d 个任务正在运行，等它们结束再切换 Go 引擎", n)
-	}
-	st, err := LoadSettings(s.DataDir)
-	if err != nil {
-		return fmt.Errorf("设置读取失败：%w", err)
-	}
-	st.GoEnginePath = path
-	if err := SaveSettings(s.DataDir, st); err != nil {
-		return fmt.Errorf("设置写入失败：%w", err)
-	}
-	s.rebuildRunner(st.PythonPath)
-	return nil
-}
 
 // mockReachable 探测本机 mock 靶站（127.0.0.1:8799，白名单内的授权目标）。
 func mockReachable() bool {
@@ -276,7 +191,7 @@ func flagName(tk string) string {
 // 尾巴保留自原始串：尾巴只属于已过闸的名单内主机，不影响白名单等价性
 // （mock 靶站 http://127.0.0.1:8799/real 的 /real 必须活着）。
 func normalizeTarget(cmd, key, raw string) (string, error) {
-	isURLCmd := cmd == "api" || cmd == "paths" || cmd == "fingerprint" || cmd == "jsintel"
+	isURLCmd := cmd == "api" || cmd == "paths" || cmd == "fingerprint"
 	lower := strings.ToLower(raw)
 	switch {
 	case isURLCmd:
@@ -290,15 +205,15 @@ func normalizeTarget(cmd, key, raw string) (string, error) {
 		return "http://" + key, nil
 	case cmd == "reverse":
 		if strings.ContainsAny(raw, "/:") || net.ParseIP(key) == nil {
-			return "", fmt.Errorf("IP 反查的目标应为裸 IP 地址，如 47.100.49.228")
+			return "", fmt.Errorf("IP 反查的目标应为裸 IP 地址，如 203.0.113.7")
 		}
 		return key, nil
 	case cmd == "subdomain" || cmd == "icp" || cmd == "baseline":
 		if strings.ContainsAny(raw, "/:") {
-			return "", fmt.Errorf("该模块的目标应为域名（不含协议和端口），如 xycovo.com")
+			return "", fmt.Errorf("该模块的目标应为域名（不含协议和端口），如 example.com")
 		}
 		return key, nil
-	default: // all / portscan
+	default: // all（jsintel/portscan 已退役，CmdAllowed 层先行拒绝）
 		if strings.Contains(lower, "://") {
 			return "", fmt.Errorf("该模块的目标应为域名或 IP（不含协议）")
 		}
@@ -306,8 +221,9 @@ func normalizeTarget(cmd, key, raw string) (string, error) {
 	}
 }
 
-// parseArgs 把可选参数串切成 argv 白名单片段：限长、限量、限字符集，
-// 并显式挡掉 --progress-file（由壳注入，用户不可覆盖）。
+// parseArgs 把可选参数串切成白名单片段：限长、限量、限字符集，并早拒
+// --progress-file 与帮助旗标（壳已无隐藏注入参数，进度落盘随子进程壳退役；
+// 纵深起见在入参层就拒，ValidateExtraArgs 的旗标白名单亦会拒收）。
 func parseArgs(raw string) ([]string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -338,7 +254,11 @@ func parseArgs(raw string) ([]string, error) {
 	return tokens, nil
 }
 
-// findRepoRoot 从 exe 目录与工作目录向上找仓库根（src/recon.py 所在）。
+// findRepoRoot 从 exe 目录与工作目录向上找仓库根（扫描产物 out/ 的落点）。
+// 直调重写后引擎内置于程序本体，仓库根唯一用途是 out/ 产物落点——判据改为
+// engine-go/ 目录（公开模块根，python 树退役后仍在）；不再以退役中的
+// src/recon.py 存在性为前置（否则 python 树缺席即回退 "."，产物目录随启动
+// CWD 漂移）。找不到时回退 "."（下游 SafeOutdir 兜底）。
 func findRepoRoot() string {
 	var candidates []string
 	if exe, err := os.Executable(); err == nil {
@@ -355,7 +275,7 @@ func findRepoRoot() string {
 		}
 	}
 	for _, c := range candidates {
-		if _, err := os.Stat(filepath.Join(c, "src", "recon.py")); err == nil {
+		if fi, err := os.Stat(filepath.Join(c, "engine-go")); err == nil && fi.IsDir() {
 			return c
 		}
 	}

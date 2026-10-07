@@ -14,7 +14,7 @@ import (
 // 页内容比一屏高，包在垂直 List 里滚动——此前一次性 Flex 平铺，
 // 底部「数据落在哪」面板被窗口底边截断（真窗口验收 H4）。
 func (a *appUI) pageTools(gtx layout.Context) layout.Dimensions {
-	_, _, _, _, mock, _, mockPro := a.env.snapshot()
+	mock, mockPro := a.env.snapshot()
 
 	blocks := []layout.Widget{
 		func(gtx layout.Context) layout.Dimensions {
@@ -22,7 +22,7 @@ func (a *appUI) pageTools(gtx layout.Context) layout.Dimensions {
 		},
 		func(gtx layout.Context) layout.Dimensions {
 			return layout.Inset{Top: Sp4}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				return sectionLabel(a.th, "扫描模块（十个，全部本地出数）").Layout(gtx)
+				return sectionLabel(a.th, "扫描模块（八个，全部本地出数）").Layout(gtx)
 			})
 		},
 		func(gtx layout.Context) layout.Dimensions {
@@ -224,14 +224,10 @@ func (a *appUI) depRow(gtx layout.Context, name, verdict string, ok, probed bool
 	)
 }
 
-// depsCard 外部依赖状态：Python、依赖、引擎脚本、mock 靶站、产物目录。
+// depsCard 外部依赖状态：扫描引擎（内置）、mock 靶站、产物目录。
+// 第 2 步直调重写后无 Python/引擎脚本依赖项（引擎随程序本体发行）。
 func (a *appUI) depsCard(gtx layout.Context) layout.Dimensions {
-	_, ver, found, deps, mock, probed, mockPro := a.env.snapshot()
-	pyPath, pyErr := a.sess.Runner.ResolvePython()
-	engineOK := pyErr == nil
-	if _, statErr := os.Stat(filepath.Join(a.sess.RepoRoot, "src", "recon.py")); statErr != nil {
-		engineOK = false
-	}
+	mock, mockPro := a.env.snapshot()
 	outOK := false
 	if info, statErr := os.Stat(filepath.Join(a.sess.RepoRoot, "out")); statErr == nil && info.IsDir() {
 		outOK = true
@@ -248,7 +244,7 @@ func (a *appUI) depsCard(gtx layout.Context) layout.Dimensions {
 						}),
 						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 							return layout.Inset{Left: Sp3}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-								if !probed && !mockPro {
+								if !mockPro {
 									return label(a.th, "检测中…", Fs11, ColTx3).Layout(gtx)
 								}
 								return layout.Dimensions{}
@@ -260,21 +256,8 @@ func (a *appUI) depsCard(gtx layout.Context) layout.Dimensions {
 					return layout.Inset{Top: Sp2}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 						return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								verdict, ok := "Python 未找到——去设置页填路径", false
-								if found {
-									verdict, ok = ver, true
-									if !deps {
-										verdict, ok = ver+"（缺 requests/yaml）", false
-									}
-								}
-								return a.depRow(gtx, "Python 解释器", verdict, ok, probed, pyPath)
-							}),
-							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								return layout.Inset{Top: Sp2}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-									return a.depRow(gtx, "扫描引擎 src/recon.py",
-										map[bool]string{true: "在仓库根就位", false: "未找到（工作目录必须能向上找到仓库根）"}[engineOK],
-										engineOK, true, filepath.Join(a.sess.RepoRoot, "src", "recon.py"))
-								})
+								return a.depRow(gtx, "扫描引擎（内置）", "随程序本体发行，进程内直调，无需安装",
+									true, true, "")
 							}),
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 								return layout.Inset{Top: Sp2}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {

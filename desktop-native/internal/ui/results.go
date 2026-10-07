@@ -7,25 +7,31 @@ import (
 	"recon-native/internal/store"
 )
 
-// ModuleInfo 一个扫描模块的展示元数据（九模块 + baseline，与 engine.cmdSet 一一对应）。
+// ModuleInfo 一个扫描模块的展示元数据（八模块，与 engine.cmdSet 一一对应）。
 type ModuleInfo struct {
-	Key   string // 传给引擎的子命令（recon.py 九模块 / recon-go baseline）
+	Key   string // 传给引擎的子命令
 	Label string // 中文名（界面用）
 	Desc  string // 一句话说明（工具页/新建任务页用）
 }
 
-// Modules 十个扫描模块（顺序即界面排列顺序）。
+// Modules 八个扫描模块（顺序即界面排列顺序）。jsintel/portscan 随全集成
+// 退役（不在此表：不可新建任务、无 tab）；历史任务由 retiredModuleLabels
+// 照常展示中文名。
 var Modules = []ModuleInfo{
 	{"all", "全部模块", "按顺序跑完整条信息收集流水线"},
 	{"subdomain", "子域枚举", "从公开数据源枚举子域并做存活验证"},
 	{"paths", "敏感路径", "探测备份文件、后台入口、敏感配置等路径"},
 	{"api", "API 面", "梳理 Swagger/OpenAPI 等接口文档与接口端点"},
 	{"fingerprint", "指纹识别", "识别 Web 框架、中间件与组件指纹"},
-	{"jsintel", "JS 情报", "从页面引用的 JS 里提取端点与线索"},
-	{"portscan", "端口扫描", "对目标 IP 做常用端口探测"},
 	{"reverse", "IP 反查", "反查 IP 绑定的域名与旁站线索"},
 	{"icp", "ICP 备案", "查询域名 ICP 备案主体信息"},
 	{"baseline", "基线检查", "域名暴露面基线体检（8 项检查一键跑）"},
+}
+
+// retiredModuleLabels 退役模块的中文名（历史任务/过程行照常展示，不可新建）。
+var retiredModuleLabels = map[string]string{
+	"jsintel":  "JS 情报",
+	"portscan": "端口扫描",
 }
 
 // baselineEventLabels 基线 8 个子检查事件 module 名 → 中文（进度事件流里
@@ -43,7 +49,8 @@ var baselineEventLabels = map[string]string{
 	"geoasn":     "IP 归属 / ASN",
 }
 
-// moduleLabel 取模块中文名（未知 key 原样返回；pipeline 是引擎过程事件的前缀）。
+// moduleLabel 取模块中文名（未知 key 原样返回；pipeline 是引擎过程事件的前缀；
+// 退役模块 jsintel/portscan 走历史映射，老任务列表照常显示中文）。
 func moduleLabel(key string) string {
 	if key == "pipeline" {
 		return "流水线"
@@ -55,6 +62,9 @@ func moduleLabel(key string) string {
 		if m.Key == key {
 			return m.Label
 		}
+	}
+	if l, ok := retiredModuleLabels[key]; ok {
+		return l
 	}
 	return key
 }

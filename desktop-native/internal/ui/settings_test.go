@@ -9,18 +9,19 @@ import (
 )
 
 // ── settings.json 持久化 ──
+//
+// 终修轮：Settings 的 PythonPath/GoEnginePath 退役幽灵字段已移除（引擎内置、
+// 二子进程退役），Settings 为零字段结构体；LoadSettings/SaveSettings 作为
+// 持久化纯函数保留（历史文件可读、毒数据兜底不崩——adv2_uipath 的毒
+// settings 回归继续覆盖；幽灵键排出验收在 final_fix_test.go）。
 
 func TestSettingsRoundtrip(t *testing.T) {
 	dir := t.TempDir()
-	if err := SaveSettings(dir, Settings{PythonPath: `C:\py\python.exe`}); err != nil {
+	if err := SaveSettings(dir, Settings{}); err != nil {
 		t.Fatalf("SaveSettings: %v", err)
 	}
-	st, err := LoadSettings(dir)
-	if err != nil {
+	if _, err := LoadSettings(dir); err != nil {
 		t.Fatalf("LoadSettings: %v", err)
-	}
-	if st.PythonPath != `C:\py\python.exe` {
-		t.Fatalf("回读不符: %+v", st)
 	}
 	// 文件确实叫 settings.json，且是合法 JSON
 	if _, err := os.Stat(filepath.Join(dir, "settings.json")); err != nil {
@@ -29,12 +30,8 @@ func TestSettingsRoundtrip(t *testing.T) {
 }
 
 func TestSettingsMissingFileIsZero(t *testing.T) {
-	st, err := LoadSettings(t.TempDir())
-	if err != nil {
+	if _, err := LoadSettings(t.TempDir()); err != nil {
 		t.Fatalf("无文件不应报错: %v", err)
-	}
-	if st.PythonPath != "" {
-		t.Fatalf("无文件应得零值: %+v", st)
 	}
 }
 
@@ -43,38 +40,8 @@ func TestSettingsCorruptFileFallsBackToZero(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte("{broken"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	st, err := LoadSettings(dir)
-	if err != nil {
+	if _, err := LoadSettings(dir); err != nil {
 		t.Fatalf("坏文件应兜底不报错: %v", err)
-	}
-	if st.PythonPath != "" {
-		t.Fatalf("坏文件应得零值: %+v", st)
-	}
-}
-
-func TestNewSessionPrefersSavedPython(t *testing.T) {
-	dir := t.TempDir()
-	if err := SaveSettings(dir, Settings{PythonPath: `C:\saved\python.exe`}); err != nil {
-		t.Fatal(err)
-	}
-	s, err := NewSession(t.TempDir(), dir, `C:\env\python.exe`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err := s.Runner.ResolvePython()
-	if err != nil || got != `C:\saved\python.exe` {
-		t.Fatalf("已保存的解释器路径应优先于入参: got=%q err=%v", got, err)
-	}
-}
-
-func TestSetPythonPathPersists(t *testing.T) {
-	s := newTestSession(t)
-	if err := s.SetPythonPath(`C:\new\python.exe`); err != nil {
-		t.Fatalf("SetPythonPath: %v", err)
-	}
-	st, err := LoadSettings(s.DataDir)
-	if err != nil || st.PythonPath != `C:\new\python.exe` {
-		t.Fatalf("切解释器应写回 settings.json: %+v err=%v", st, err)
 	}
 }
 

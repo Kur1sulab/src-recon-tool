@@ -17,13 +17,10 @@ func writeSettingsFile(dir, body string) error {
 	return writeFile(filepath.Join(dir, "settings.json"), body)
 }
 
-// makeStubRepo 造一个含 src/recon.py 桩的假仓库根。
+// makeStubRepo 造一个含 engine-go/ 标记的假仓库根（终修轮：findRepoRoot
+// 仓库根判据随直调重写改为 engine-go 目录，src/recon.py 桩退役）。
 func makeStubRepo(repo string) error {
-	p := filepath.Join(repo, "src", "recon.py")
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-		return err
-	}
-	return writeFile(p, "# stub\n")
+	return os.MkdirAll(filepath.Join(repo, "engine-go"), 0o755)
 }
 
 var advIDRe = regexp.MustCompile(`"id":"([^"]+)"`)

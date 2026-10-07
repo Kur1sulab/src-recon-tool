@@ -6,8 +6,11 @@ toolchain go1.24.1
 
 require (
 	gioui.org v0.10.3
+	github.com/Kur1sulab/src-recon-tool/engine-go v0.0.0-00010101000000-000000000000
 	golang.org/x/sys v0.39.0
 )
+
+replace github.com/Kur1sulab/src-recon-tool/engine-go => ../engine-go
 
 require (
 	gioui.org/shader v1.0.9 // indirect
@@ -17,4 +20,5 @@ require (
 	golang.org/x/image v0.26.0 // indirect
 	golang.org/x/net v0.48.0 // indirect
 	golang.org/x/text v0.32.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
