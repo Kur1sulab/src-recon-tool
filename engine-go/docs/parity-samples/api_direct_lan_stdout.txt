@@ -1,5 +1,5 @@
-[*] API 文档/未授权探测: http://192.168.88.1:18082/land（27 个候选端点）
+[*] API 文档/未授权探测: http://192.0.2.10:18082/land（27 个候选端点）
 [*] 站点基线: soft404（随机路径 → 200, 333B, text/html; charset=utf-8）
 [!] 该站存在 catch-all（soft404），已启用形态比对过滤——假阳性会被剔除
 [*] 探测完成：未发现暴露的 API 文档/运维端点（catch-all 过滤掉 26 条疑似）
-    -> C:\Users\18270\src-recon-tool\engine-go\out\http_192.168.88.1_18082_land\api_unauth.json
+    -> C:\<user>\src-recon-tool\engine-go\out\http_192.0.2.10_18082_land\api_unauth.json

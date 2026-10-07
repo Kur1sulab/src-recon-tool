@@ -1,6 +1,0 @@
-[*] ICP 备案查询: 例えテスト.jp
-[!] ICP 查询第 1/3 次失败: proxyconnect tcp: dial tcp 127.0.0.1:9: connectex: No connection could be made because the target machine actively refus
-[!] ICP 查询第 2/3 次失败: proxyconnect tcp: dial tcp 127.0.0.1:9: connectex: No connection could be made because the target machine actively refus
-[!] ICP 查询第 3/3 次失败: proxyconnect tcp: dial tcp 127.0.0.1:9: connectex: No connection could be made because the target machine actively refus
-[!] 未查询到备案信息（请求失败: proxyconnect tcp: dial tcp 127.0.0.1:9: connectex: No connection could be made because the target machine actively refus）—— 也可能是未备案或接口限频，建议人工复核 beian.miit.gov.cn
-    -> C:\Users\18270\src-recon-tool\engine-go\redteam-adv2\out\例えテスト.jp\icp______.jp.json

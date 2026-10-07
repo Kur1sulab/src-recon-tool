@@ -144,7 +144,7 @@ ThinkPHP 框架的用法」）。Go 从 `recon-go-c3review.exe`（HEAD+fix3 工�
 ## 6. 流程记录
 
 - **P1（红线核查）**：本轮全部验证流量仅达 `127.0.0.1:8799/8801` 两个本机 mock 靶站与本地
-  python 子进程；未触碰 xycovo.com / 47.100.49.228 / 任何真实目标；`go test` 全程零外网（Mimosa
+  python 子进程；未触碰任何真实目标（运维者自有域名与服务器 IP 已脱敏）；`go test` 全程零外网（Mimosa
   深扫未运行，本复核不涉及）。
 - **P2（计划正本缺口，延续 REVIEW-c2 P2）**：GOAL 日志仍止于 c2 轮，无 c3 轮日志与验收线声明
   （dcfc220/82aeef1/3eb2c9e/30ee014/8b9717f 五笔 c3 提交未回写 GOAL）。本轮以 c2 遗留清单 +

@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Kur1sulab/src-recon-tool/engine-go/internal/fingerprint"
-	"github.com/Kur1sulab/src-recon-tool/engine-go/internal/mockweb"
-	"github.com/Kur1sulab/src-recon-tool/engine-go/internal/netutil"
-	"github.com/Kur1sulab/src-recon-tool/engine-go/internal/subdomain"
-	"github.com/Kur1sulab/src-recon-tool/engine-go/internal/toolrun"
+	"github.com/Kur1sulab/src-recon-tool/engine-go/fingerprint"
+	"github.com/Kur1sulab/src-recon-tool/engine-go/mockweb"
+	"github.com/Kur1sulab/src-recon-tool/engine-go/netutil"
+	"github.com/Kur1sulab/src-recon-tool/engine-go/subdomain"
+	"github.com/Kur1sulab/src-recon-tool/engine-go/toolrun"
 )
 
 // 本文件是 Python↔Go parity 断言矩阵。两引擎打同一个 mockweb 靶站；

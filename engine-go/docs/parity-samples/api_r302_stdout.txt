@@ -27,31 +27,31 @@
 [!] 中危  命中 Go pprof 调试面                       /debug/pprof/  (body 含 pprof) → 存活✓
 [!] 低危  命中 Prometheus 指标                      /metrics  (body 含 # help) → 存活✓
 [*] 取证模式：为 25 个存活命中落盘存证
-      存证 /actuator/env -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\actuator_env
-      存证 /actuator/heapdump -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\actuator_heapdump
-      存证 /druid/websession.json -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\druid_websession_json
-      存证 /nacos/v1/auth/users -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\nacos_v1_auth_users
-      存证 /swagger-ui.html -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\swagger_ui_html
-      存证 /swagger-ui/index.html -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\swagger_ui_index_html
-      存证 /swagger-resources -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\swagger_resources
-      存证 /v2/api-docs -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\v2_api_docs
-      存证 /v3/api-docs -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\v3_api_docs
-      存证 /api-docs -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\api_docs
-      存证 /actuator -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\actuator
-      存证 /actuator/mappings -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\actuator_mappings
-      存证 /actuator/beans -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\actuator_beans
-      存证 /druid/index.html -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\druid_index_html
-      存证 /druid/sql.json -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\druid_sql_json
-      存证 /graphql -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\graphql
-      存证 /graphiql -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\graphiql
-      存证 /eureka/apps -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\eureka_apps
-      存证 /nacos/ -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\nacos
-      存证 /v1/agent/members -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\v1_agent_members
-      存证 /h2-console -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\h2_console
-      存证 /debug/pprof/ -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\debug_pprof
-      存证 /redoc -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\redoc
-      存证 /actuator/health -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\actuator_health
-      存证 /metrics -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\metrics
+      存证 /actuator/env -> C:\<user>\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\actuator_env
+      存证 /actuator/heapdump -> C:\<user>\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\actuator_heapdump
+      存证 /druid/websession.json -> C:\<user>\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\druid_websession_json
+      存证 /nacos/v1/auth/users -> C:\<user>\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\nacos_v1_auth_users
+      存证 /swagger-ui.html -> C:\<user>\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\swagger_ui_html
+      存证 /swagger-ui/index.html -> C:\<user>\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\swagger_ui_index_html
+      存证 /swagger-resources -> C:\<user>\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\swagger_resources
+      存证 /v2/api-docs -> C:\<user>\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\v2_api_docs
+      存证 /v3/api-docs -> C:\<user>\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\v3_api_docs
+      存证 /api-docs -> C:\<user>\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\api_docs
+      存证 /actuator -> C:\<user>\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\actuator
+      存证 /actuator/mappings -> C:\<user>\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\actuator_mappings
+      存证 /actuator/beans -> C:\<user>\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\actuator_beans
+      存证 /druid/index.html -> C:\<user>\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\druid_index_html
+      存证 /druid/sql.json -> C:\<user>\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\druid_sql_json
+      存证 /graphql -> C:\<user>\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\graphql
+      存证 /graphiql -> C:\<user>\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\graphiql
+      存证 /eureka/apps -> C:\<user>\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\eureka_apps
+      存证 /nacos/ -> C:\<user>\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\nacos
+      存证 /v1/agent/members -> C:\<user>\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\v1_agent_members
+      存证 /h2-console -> C:\<user>\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\h2_console
+      存证 /debug/pprof/ -> C:\<user>\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\debug_pprof
+      存证 /redoc -> C:\<user>\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\redoc
+      存证 /actuator/health -> C:\<user>\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\actuator_health
+      存证 /metrics -> C:\<user>\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\evidence\127.0.0.1_18081\metrics
 [+] 探测完成：25 个疑似命中，其中**存活复验通过 25 个**（catch-all 过滤掉 1 条）
       [存活][高] Actuator env（含配置/口令）  /actuator/env
       [存活][高] Heapdump（可提取凭据）  /actuator/heapdump
@@ -68,4 +68,4 @@
       [存活][中] Actuator beans  /actuator/beans
       [存活][中] Druid 监控台  /druid/index.html
       [存活][中] Druid SQL 监控  /druid/sql.json
-    -> C:\Users\18270\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\api_unauth.json
+    -> C:\<user>\src-recon-tool\engine-go\out\http_127.0.0.1_18081_r302\api_unauth.json

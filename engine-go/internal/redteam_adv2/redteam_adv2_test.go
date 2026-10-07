@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Kur1sulab/src-recon-tool/engine-go/internal/icp"
-	"github.com/Kur1sulab/src-recon-tool/engine-go/internal/netutil"
+	"github.com/Kur1sulab/src-recon-tool/engine-go/icp"
+	"github.com/Kur1sulab/src-recon-tool/engine-go/netutil"
 )
 
 const (

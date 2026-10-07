@@ -13,7 +13,7 @@
 
 任务给定的计划文档路径 `src-recon-tool/docs/GOAL-20261002-engine-go.md` **不存在**
 （`src-recon-tool/docs/` 仅有 `audit-20260924.md`，复核员 `find` 全仓与 home 目录实证）。
-全盘检索发现同名文件位于 `C:/Users/18270/pentest/vulnscan-platform/docs/GOAL-20261002-engine-go.md`，
+全盘检索发现同名文件位于本机用户目录下另一项目（路径已脱敏）`pentest/vulnscan-platform/docs/GOAL-20261002-engine-go.md`，
 但其内容描述的是**另一个项目**（vulnscan-platform 的 autoscanner Go 重写：
 gate/runner/writers/fidhash 架构、autoscanner-go.exe），与本仓库 engine-go
 （recon-go：netutil/subdomain/fingerprint/mockweb/toolrun/parity/cli）结构完全不同，

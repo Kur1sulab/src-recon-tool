@@ -174,15 +174,33 @@ curl -L -o tools/bin/subfinder.zip \
 ## 实测白名单红线（务必遵守）
 
 自动化测试只打本机 httptest/mock 靶站。**真实目标实测仅限人工验收**，且只允许：
-- `xycovo.com`（用户自有站点）
-- `47.100.49.228`（用户自有服务器）
+- 运维者**自有**的站点与服务器（真实域名/IP 不写入本公开文档；自用清单另行保管）
 - 本机 `127.0.0.1` mock / httptest 靶站
 
 禁打任何其他真实目标。DNS 锚点一律用 `127.0.0.1` 字面量——Clash fake-ip 环境下
 假域名会"解析成功"（198.18.0.0/15），禁止依赖 NXDOMAIN 断言。
 
-## llm 模块弃用声明
+## llm 模块：Go 版不提供
 
 `llm` 子命令（`modules.llm_assist`，LLM 辅助解读）在 Go 版**不移植**：属可选
-增强、依赖外部 LLM 接口，与"纯 Go 单文件、零外网依赖"的引擎定位冲突。执行
-`recon-go llm` 会打印弃用提示并 exit 2。Python 版已同步移除该模块（`modules/llm_assist.py` 已删除，`recon.py llm` 同样提示并 exit 2）——该功能需要向第三方服务发送扫描数据，与数据不出本机的红线冲突，两侧都不再提供。
+增强、依赖外部 LLM 接口，与"纯 Go 单文件、零外网依赖"的引擎定位冲突。Python
+版已同步移除该模块（`modules/llm_assist.py` 已删除）——该功能需要向第三方服务
+发送扫描数据，与数据不出本机的红线冲突，两侧都不再提供。终修轮起 Go CLI 的
+`llm` 弃用占位槽位一并删除（公开面不保留 AI 词汇）：`recon-go llm` 按未知
+子命令处理（exit 2，无事件流）。
+
+## 进程内嵌入契约（第三方消费方必读）
+
+engine-go 是公开 Go 模块，各 `Run*Context` 可在第三方进程内直接调用。嵌入方
+须自知两条契约：
+
+1. **panic 边界**：库内只在自有 goroutine 的入口处兜底（baseline 聚合器的
+   检查 goroutine 一处 recover）。按 Go 库惯例，引擎函数在敌意远端数据下
+   仍可能 panic，且检查内部 worker goroutine（如 dnsrec 池）不在库内兜底面
+   ——**嵌入方必须在自己的 goroutine 边界 recover**（桌面壳即如此：任务
+   job goroutine 单点 recover，任一模块 panic 只失败本任务不拖死宿主）。
+2. **包级词表为只读约定**：`apiunauth.Endpoints`、`fingerprint.Rules`、
+   `paths.PathsList`、`baseline.CheckLabels`、`geoasn.GeoSources` 等扫描用
+   词表/判定表当前以导出 var 形态公开（运行中改写=数据竞争且影响并发任务）。
+   仓库内零写入点；未来若收紧将改为函数访问器（ breaking change 会在
+   CHANGELOG 注明），嵌入方请勿写。

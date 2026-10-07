@@ -1,8 +1,0 @@
-[*] 敏感路径探测: http://127.0.0.1:18081/real（19 条字典）
-[*] 站点基线: normal（随机路径 → 404, 29B）
-[+] 敏感路径探测完成（存活 5 个，另有 0 条被拒绝/跳转/基线过滤）-> C:\Users\18270\src-recon-tool\engine-go\redteam-adv2\out\http_127.0.0.1_18081_real\paths.json
-      [可访问] /robots.txt  (200, 31B, 复验通过)
-      [可访问] /.env  (200, 43B, 复验通过)
-      [可访问] /swagger-ui.html  (200, 125B, 复验通过)
-      [可访问] /actuator  (200, 87B, 复验通过)
-      [可访问] /actuator/env  (200, 107B, 复验通过)

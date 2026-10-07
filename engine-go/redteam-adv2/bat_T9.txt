@@ -1,2 +1,0 @@
-[!] 输出目录创建失败: mkdir out\line1
-line2: The filename, directory name, or volume label syntax is incorrect.
