@@ -205,6 +205,12 @@ def main():
     pn.add_argument("--workers", type=int, default=32, help="并发数（默认 32，上限 32）")
     pc = sub.add_parser("poc"); pc.add_argument("-t", "--target", required=True); pc.add_argument("-p", "--poc", required=True)
     pl = sub.add_parser("llm"); pl.add_argument("-d", "--domain", required=True)
+    ppd = sub.add_parser("patchdiff", help="补丁差分 → 变种狩猎（从修复补丁反推漏洞指纹）")
+    ppd.add_argument("-r", "--repo", required=True, help="本地 git 仓库路径")
+    ppd.add_argument("--commit", help="只看某个提交")
+    ppd.add_argument("--range", dest="rng", help="提交区间，如 v1.2..v1.3")
+    ppd.add_argument("--limit", type=int, default=20, help="最多分析多少个安全相关提交（默认 20）")
+    ppd.add_argument("--emit-rule", dest="emit_rule", help="生成 semgrep 规则文件名（写入输出目录）")
     pr2 = sub.add_parser("report"); pr2.add_argument("-t", "--target", "-d", "--domain", dest="target",
                                                      required=True, help="按已有产出重新生成资产档案/证据包")
     args = p.parse_args()
@@ -257,6 +263,11 @@ def main():
         elif args.cmd == "poc":
             from modules.poc_engine import run_poc
             run_poc(args.target, args.poc)
+        elif args.cmd == "patchdiff":
+            from modules.patchdiff import run_patchdiff
+            out = make_outdir("patchdiff")
+            run_patchdiff(args.repo, args.commit, args.rng, args.limit,
+                          args.emit_rule, outdir=out)
         elif args.cmd == "llm":
             # 已弃用（与 Go 引擎 cli 同步）：LLM 辅助需向第三方服务发送资产数据，不再提供
             print("[*] llm 模块已弃用：为避免扫描数据外发第三方，该功能已移除（详见 README）")
